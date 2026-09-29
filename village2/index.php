@@ -10,7 +10,7 @@ try {
     error_log('[village2] ' . $e);
     $fatal = 'DB 연결 또는 초기화에 실패했습니다. config.local.php 의 DB 설정을 확인하세요.';
 }
-$v = filemtime(__DIR__ . '/assets/js/village.js') . filemtime(__DIR__ . '/assets/css/game.css');
+$v = max(array_map('filemtime', glob(__DIR__ . '/assets/{js,css}/*.{js,css}', GLOB_BRACE)));
 ?><!doctype html>
 <html lang="ko">
 <head>
@@ -19,6 +19,7 @@ $v = filemtime(__DIR__ . '/assets/js/village.js') . filemtime(__DIR__ . '/assets
 <title>마을 전략</title>
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="assets/css/game.css?v=<?= h($v) ?>">
+<link rel="stylesheet" href="assets/css/art.css?v=<?= h($v) ?>">
 </head>
 <body>
 <?php if (!$user || $fatal): ?>
@@ -86,6 +87,7 @@ $v = filemtime(__DIR__ . '/assets/js/village.js') . filemtime(__DIR__ . '/assets
     window.VG_BOOT = <?= json_encode(['csrf' => vg_csrf_token(), 'user' => ['name' => $user['name']]], JSON_UNESCAPED_UNICODE) ?>;
   </script>
   <script src="assets/js/camera.js?v=<?= h($v) ?>"></script>
+  <script src="assets/js/art.js?v=<?= h($v) ?>"></script>
   <script src="assets/js/village.js?v=<?= h($v) ?>"></script>
 <?php endif; ?>
 </body>

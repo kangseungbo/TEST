@@ -25,8 +25,6 @@ $VG_CONFIG = [
     // 예: ['id' => 'dev', 'name' => '개발자', 'admin' => true]
     'dev_user' => null,
 
-    'upload_dir' => __DIR__ . '/uploads',
-    'upload_url' => 'uploads',
     'timezone'   => 'Asia/Seoul',
 ];
 

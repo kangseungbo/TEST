@@ -10,8 +10,6 @@ function vg_admin_action(string $do, array $P, array $F): string
         case 'save_bdefs':    return vg_admin_save_bdefs($P['d'] ?? []);
         case 'add_bdef':      return vg_admin_add_bdef($P);
         case 'delete_bdef':   return vg_admin_delete_bdef((string)($P['code'] ?? ''));
-        case 'upload_image':  return vg_admin_upload_image((string)($P['key'] ?? ''), $F['file'] ?? null);
-        case 'delete_image':  return vg_admin_delete_image((string)($P['key'] ?? ''));
         case 'player_save':   return vg_admin_player_save((int)($P['vid'] ?? 0), $P);
         case 'player_add_building':
             return vg_admin_player_add_building((int)($P['vid'] ?? 0), (string)($P['code'] ?? ''), (int)($P['slot'] ?? 0), (int)($P['level'] ?? 1));
@@ -115,55 +113,6 @@ function vg_admin_delete_bdef(string $code): string
     if ($st->fetchColumn() > 0) throw new VgError('이 건물을 가진 마을이 있어 지울 수 없습니다. 대신 사용 안 함으로 바꾸세요.');
     $pdo->prepare('DELETE FROM vg_building_defs WHERE code = ?')->execute([$code]);
     return '건물 정의를 지웠습니다.';
-}
-
-function vg_admin_image_keys(): array
-{
-    $keys = [];
-    foreach (vg_bdefs() as $code => $d) {
-        if ($d['category'] === 'wall') continue;
-        for ($t = 1; $t <= 3; $t++) $keys["bld_{$code}_{$t}"] = "{$d['name']} " . ['', 'Lv1~3', 'Lv4~7', 'Lv8+'][$t];
-    }
-    $keys['wall_back'] = '뒤 성벽';
-    $keys['wall_front'] = '앞 성벽';
-    return $keys;
-}
-
-function vg_admin_upload_image(string $key, ?array $file): string
-{
-    global $VG_CONFIG;
-    if (!isset(vg_admin_image_keys()[$key])) throw new VgError('알 수 없는 이미지 자리입니다.');
-    if (!$file || ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) throw new VgError('파일 업로드에 실패했습니다.');
-    if ($file['size'] > 5 * 1024 * 1024) throw new VgError('5MB 이하 이미지만 올릴 수 있습니다.');
-    $info = @getimagesize($file['tmp_name']);
-    $exts = [IMAGETYPE_PNG => 'png', IMAGETYPE_JPEG => 'jpg', IMAGETYPE_GIF => 'gif', IMAGETYPE_WEBP => 'webp'];
-    if (!$info || !isset($exts[$info[2]])) throw new VgError('PNG, JPG, GIF, WEBP 이미지만 올릴 수 있습니다.');
-    $dir = $VG_CONFIG['upload_dir'];
-    if (!is_dir($dir) && !mkdir($dir, 0775, true)) throw new VgError('업로드 폴더를 만들 수 없습니다.');
-    vg_admin_remove_image_files($key);
-    $name = $key . '.' . $exts[$info[2]];
-    if (!move_uploaded_file($file['tmp_name'], "$dir/$name")) throw new VgError('파일 저장에 실패했습니다. 폴더 권한을 확인하세요.');
-    @chmod("$dir/$name", 0644);
-    vg_db()->prepare('INSERT INTO vg_images (ikey, path, updated_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE path = VALUES(path), updated_at = VALUES(updated_at)')
-        ->execute([$key, $name, vg_now()]);
-    return '이미지를 올렸습니다.';
-}
-
-function vg_admin_remove_image_files(string $key): void
-{
-    global $VG_CONFIG;
-    foreach (['png', 'jpg', 'gif', 'webp'] as $e) {
-        $p = $VG_CONFIG['upload_dir'] . "/$key.$e";
-        if (is_file($p)) @unlink($p);
-    }
-}
-
-function vg_admin_delete_image(string $key): string
-{
-    if (!isset(vg_admin_image_keys()[$key])) throw new VgError('알 수 없는 이미지 자리입니다.');
-    vg_admin_remove_image_files($key);
-    vg_db()->prepare('DELETE FROM vg_images WHERE ikey = ?')->execute([$key]);
-    return '이미지를 지웠습니다. (기본 그림으로 표시)';
 }
 
 /** 자원·건물 레벨 직접 변경. 먼저 정산해서 그 시점 기준으로 덮어쓴다 */

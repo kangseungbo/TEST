@@ -153,123 +153,14 @@
 
   // ───────────── 마을 그리기 ─────────────
   const pos = (gx, gy) => ({ x: (gx - gy) * TW / 2 * SP, y: (gx + gy - 4) * TH / 2 * SP });
-  const tierOf = (lv) => (lv >= 8 ? 3 : lv >= 4 ? 2 : 1);
-
-  function shade(hex, f) {
-    const n = parseInt(hex.slice(1), 16);
-    let r = n >> 16, g = (n >> 8) & 255, b = n & 255;
-    const k = (c) => Math.max(0, Math.min(255, Math.round(f < 0 ? c * (1 + f) : c + (255 - c) * f)));
-    r = k(r); g = k(g); b = k(b);
-    return '#' + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1);
-  }
   const pts = (arr) => arr.map((p) => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+  const Art = window.VgArt;
 
-  const STYLE = {
-    hall: { a: 54, h: 44, wall: '#d9c9a6', roof: '#a8412e', rh: 36, flag: true },
-    lumber: { a: 44, h: 26, wall: '#9a6b3c', roof: '#5d3d1e', rh: 18, logs: true },
-    market: { a: 44, h: 22, wall: '#eadcb8', roof: '#c0392b', rh: 22 },
-    smelter: { a: 42, h: 32, wall: '#6d5d52', roof: '#3b2f2a', rh: 12, chimney: true, glow: true },
-    warehouse: { a: 52, h: 30, wall: '#b98a52', roof: '#6b4a2a', rh: 20 },
-    barracks: { a: 48, h: 30, wall: '#b8a58a', roof: '#7a2a2a', rh: 22, flag: true },
-    archery: { a: 44, h: 28, wall: '#a3b37e', roof: '#3f6b2f', rh: 22, target: true },
-    stable: { a: 52, h: 24, wall: '#a8773f', roof: '#5b3a1a', rh: 18 },
-    workshop: { a: 48, h: 30, wall: '#8d8a80', roof: '#4a4a4a', rh: 16, chimney: true },
-    smithy: { a: 42, h: 28, wall: '#7d6f63', roof: '#2f2f2f', rh: 16, chimney: true, glow: true },
-    watchtower: { a: 22, h: 92, wall: '#bda57e', roof: '#6b3a1a', rh: 28 },
-    _: { a: 44, h: 28, wall: '#c8b48c', roof: '#7a5a3a', rh: 18 },
-  };
-
-  /** 아이소메트릭 상자 + 지붕. 반환: 그림 높이 */
-  function isoHouse(g, s, k) {
-    const a = s.a * k, h = s.h * k, rh = s.rh * k;
-    const L = [-a, 0], R = [a, 0], B = [0, a / 2], T = [0, -a / 2];
-    const up = (p, d) => [p[0], p[1] - d];
-    el('polygon', { points: pts([L, B, up(B, h), up(L, h)]), fill: shade(s.wall, -0.18), stroke: '#3b2a18', 'stroke-width': 1 }, g);
-    el('polygon', { points: pts([B, R, up(R, h), up(B, h)]), fill: s.wall, stroke: '#3b2a18', 'stroke-width': 1 }, g);
-    // 문
-    const dw = a * 0.22, dh = Math.min(h * 0.6, 22 * k);
-    el('polygon', { points: pts([[a * 0.35, a * 0.33], [a * 0.35 + dw, a * 0.33 - dw / 2], [a * 0.35 + dw, a * 0.33 - dw / 2 - dh], [a * 0.35, a * 0.33 - dh]]), fill: '#4a3220' }, g);
-    const apex = [0, -h - rh];
-    el('polygon', { points: pts([up(L, h), up(T, h), apex]), fill: shade(s.roof, -0.35) }, g);
-    el('polygon', { points: pts([up(T, h), up(R, h), apex]), fill: shade(s.roof, -0.25) }, g);
-    el('polygon', { points: pts([up(L, h), up(B, h), apex]), fill: shade(s.roof, -0.1), stroke: '#2a1a10', 'stroke-width': 1 }, g);
-    el('polygon', { points: pts([up(B, h), up(R, h), apex]), fill: s.roof, stroke: '#2a1a10', 'stroke-width': 1 }, g);
-    let top = h + rh;
-    if (s.chimney) {
-      const cx = a * 0.45, cy = -h - rh * 0.2;
-      el('rect', { x: cx - 5 * k, y: cy - 26 * k, width: 10 * k, height: 26 * k, fill: '#5a4a40', stroke: '#2a1a10' }, g);
-      el('ellipse', { cx: cx + 4 * k, cy: cy - 34 * k, rx: 9 * k, ry: 6 * k, fill: '#ddd', opacity: 0.6 }, g);
-      top = Math.max(top, -cy + 40 * k);
-    }
-    if (s.glow) el('polygon', { points: pts([[-a * 0.6, a * 0.2 - h * 0.35], [-a * 0.3, a * 0.35 - h * 0.35], [-a * 0.3, a * 0.35 - h * 0.6], [-a * 0.6, a * 0.2 - h * 0.6]]), fill: '#f39c12', opacity: 0.85 }, g);
-    if (s.flag) {
-      el('line', { x1: 0, y1: apex[1], x2: 0, y2: apex[1] - 26 * k, stroke: '#3b2a18', 'stroke-width': 2 }, g);
-      el('polygon', { points: pts([[0, apex[1] - 26 * k], [16 * k, apex[1] - 21 * k], [0, apex[1] - 16 * k]]), fill: '#c0392b' }, g);
-      top += 26 * k;
-    }
-    if (s.logs) {
-      for (let i = 0; i < 3; i++) el('ellipse', { cx: -a * 0.75 + i * 9 * k, cy: a * 0.05 - i * 3 * k, rx: 5 * k, ry: 5 * k, fill: '#c89b62', stroke: '#6b4a2a' }, g);
-    }
-    if (s.target) {
-      el('circle', { cx: -a * 0.85, cy: -6 * k, r: 9 * k, fill: '#fff', stroke: '#c0392b', 'stroke-width': 3 * k }, g);
-      el('circle', { cx: -a * 0.85, cy: -6 * k, r: 3 * k, fill: '#c0392b' }, g);
-    }
-    return top;
-  }
-
-  function drawFarm(g, k) {
-    const a = 60 * k;
-    const L = [-a, 0], R = [a, 0], B = [0, a / 2], T = [0, -a / 2];
-    el('polygon', { points: pts([L, B, [0, a / 2 + 6], [-a, 6]]), fill: '#7a5a30' }, g);
-    el('polygon', { points: pts([B, R, [a, 6], [0, a / 2 + 6]]), fill: '#8f6a3a' }, g);
-    el('polygon', { points: pts([L, T, R, B]), fill: '#d8c25a', stroke: '#8a7428' }, g);
-    for (let i = 1; i < 6; i++) {
-      const f = i / 6;
-      // 좌상변(L→T)의 점과 우하변(B→R)의 점을 이어 밭고랑
-      el('line', { x1: -a + a * f, y1: -a / 2 * f, x2: a * f, y2: a / 2 - a / 2 * f, stroke: '#a88f30', 'stroke-width': 2 }, g);
-    }
-    const bg = el('g', { transform: `translate(${-a * 0.35},${-a * 0.12})` }, g);
-    return Math.max(a / 2, isoHouse(bg, { a: 20, h: 16, wall: '#a8412e', roof: '#6b2a1e', rh: 12 }, k) + a * 0.12);
-  }
-
-  function drawMine(g, k) {
-    const w = 58 * k, h = 52 * k;
-    el('path', { d: `M${-w},${8 * k} Q${-w * 0.55},${-h} 0,${-h} Q${w * 0.6},${-h} ${w},${8 * k} Z`, fill: '#8a8278', stroke: '#4a4238' }, g);
-    el('path', { d: `M${-w * 0.2},${-h * 0.95} Q0,${-h * 1.05} ${w * 0.3},${-h * 0.9} L${w * 0.1},${-h * 0.6} Z`, fill: '#a9a197' }, g);
-    el('path', { d: `M${-14 * k},${10 * k} L${-14 * k},${-8 * k} Q0,${-24 * k} ${14 * k},${-8 * k} L${14 * k},${10 * k} Z`, fill: '#2a2018', stroke: '#6b4a2a', 'stroke-width': 3 }, g);
-    el('rect', { x: w * 0.45, y: -2 * k, width: 16 * k, height: 10 * k, fill: '#6b4a2a' }, g);
-    el('circle', { cx: w * 0.52, cy: -5 * k, r: 5 * k, fill: '#5f6f80' }, g);
-    return h + 4;
-  }
-
-  function drawScaffold(g, k) {
-    const a = 46 * k, h = 50 * k;
-    el('polygon', { points: pts([[-a, 0], [0, -a / 2], [a, 0], [0, a / 2]]), fill: '#a07a50', stroke: '#6b4a2a' }, g);
-    const posts = [[-a * 0.7, 0], [0, a * 0.35], [a * 0.7, 0], [0, -a * 0.35]];
-    for (const p of posts) el('line', { x1: p[0], y1: p[1], x2: p[0], y2: p[1] - h, stroke: '#6b4a2a', 'stroke-width': 3 }, g);
-    for (const y of [h * 0.45, h]) {
-      el('polyline', { points: pts(posts.concat([posts[0]]).map((p) => [p[0], p[1] - y])), fill: 'none', stroke: '#8b5a2b', 'stroke-width': 2.5 }, g);
-    }
-    el('line', { x1: posts[0][0], y1: posts[0][1], x2: posts[1][0], y2: posts[1][1] - h, stroke: '#8b5a2b', 'stroke-width': 2 }, g);
-    el('line', { x1: posts[1][0], y1: posts[1][1], x2: posts[2][0], y2: posts[2][1] - h, stroke: '#8b5a2b', 'stroke-width': 2 }, g);
-    return h + a * 0.35;
-  }
-
-  /** 건물 한 채. 업로드 이미지가 있으면 이미지, 없으면 기본 도형. 반환: 그림 높이 */
+  /** 건물 한 채 (그림은 art.js). 반환: 그림 높이 */
   function drawBuilding(g, b) {
-    const st = G.st;
-    if (b.level === 0) return drawScaffold(g, 1);
-    const tier = tierOf(b.level);
-    const img = st.images[`bld_${b.code}_${tier}`] || st.images[`bld_${b.code}_1`];
-    if (img) {
-      const w = TW * 1.0, hgt = TW * 1.0;
-      el('image', { href: img, x: -w / 2, y: TH / 4 - hgt, width: w, height: hgt, preserveAspectRatio: 'xMidYMax meet' }, g);
-      return hgt - TH / 4;
-    }
-    const k = [0, 0.82, 0.95, 1.1][tier];
-    if (b.code === 'farm') return drawFarm(g, k);
-    if (b.code === 'mine') return drawMine(g, k);
-    return isoHouse(g, Object.assign({}, STYLE[b.code] || STYLE._, tier === 3 && !STYLE[b.code]?.flag ? { flag: true } : {}), k);
+    if (b.level === 0) return Art.scaffold(g);
+    const d = G.st.defs[b.code];
+    return Art.building(g, b.code, b.level, d ? d.category : '');
   }
 
   function wallCorners() {
@@ -278,42 +169,11 @@
     return { top: c(-e, -e), right: c(4 + e, -e), bottom: c(4 + e, 4 + e), left: c(-e, 4 + e) };
   }
 
-  function drawWallSegs(g, segs, WH, alpha) {
-    const grp = el('g', { opacity: alpha }, g);
-    for (const [p1, p2] of segs) {
-      el('polygon', { points: pts([p1, p2, [p2[0], p2[1] - WH], [p1[0], p1[1] - WH]]), fill: p1[1] < p2[1] ? '#a39580' : '#b8aa92', stroke: '#5a4e3e' }, grp);
-      const len = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]), n = Math.floor(len / 22);
-      for (let i = 0; i < n; i += 2) {
-        const f1 = i / n, f2 = (i + 1) / n;
-        const q1 = [p1[0] + (p2[0] - p1[0]) * f1, p1[1] + (p2[1] - p1[1]) * f1 - WH];
-        const q2 = [p1[0] + (p2[0] - p1[0]) * f2, p1[1] + (p2[1] - p1[1]) * f2 - WH];
-        el('polygon', { points: pts([q1, q2, [q2[0], q2[1] - 9], [q1[0], q1[1] - 9]]), fill: '#9a8c76', stroke: '#5a4e3e' }, grp);
-      }
-    }
-    for (const [p1] of segs) {
-      el('rect', { x: p1[0] - 12, y: p1[1] - WH - 22, width: 24, height: WH + 22, fill: '#a89a84', stroke: '#5a4e3e' }, grp);
-      el('ellipse', { cx: p1[0], cy: p1[1] - WH - 22, rx: 12, ry: 5, fill: '#8a7c66', stroke: '#5a4e3e' }, grp);
-    }
-    const last = segs[segs.length - 1][1];
-    el('rect', { x: last[0] - 12, y: last[1] - WH - 22, width: 24, height: WH + 22, fill: '#a89a84', stroke: '#5a4e3e' }, grp);
-  }
-
-  /** 성벽: 뒤/앞 이미지를 각각 통째로. 한쪽만 있으면 나머지는 도형 */
+  /** 성벽 뒤/앞. 공사 중(Lv0)이면 목책을 흐리게 */
   function drawWall(layer, which, wallB) {
     if (!wallB) return;
-    const st = G.st, ui = st.ui;
-    const C = wallCorners(), WH = 34;
-    const alpha = wallB.level === 0 ? 0.45 : 1;
-    const img = st.images['wall_' + which];
-    const width = (C.right[0] - C.left[0]) * ui.wall_img_scale;
-    const g = el('g', { class: 'wall', 'data-wall': which }, layer);
-    if (img) {
-      const hgt = which === 'back' ? (C.left[1] - C.top[1]) + WH * 2.2 : (C.bottom[1] - C.left[1]) + WH * 2.2;
-      const yBottom = (which === 'back' ? C.left[1] : C.bottom[1] + WH * 0.4) + (which === 'back' ? ui.wall_back_offset : ui.wall_front_offset);
-      el('image', { href: img, x: -width / 2, y: yBottom - hgt, width, height: hgt, preserveAspectRatio: 'xMidYMax meet', opacity: alpha }, g);
-    } else {
-      drawWallSegs(g, which === 'back' ? [[C.left, C.top], [C.top, C.right]] : [[C.left, C.bottom], [C.bottom, C.right]], WH, alpha);
-    }
+    const g = el('g', { class: 'wall', 'data-wall': which, opacity: wallB.level === 0 ? 0.45 : 1 }, layer);
+    Art.wall(g, which, Math.max(1, wallB.level), wallCorners());
     g.addEventListener('click', () => select({ type: 'wall' }));
   }
 
@@ -653,6 +513,8 @@
     document.querySelectorAll('.tabs [data-tab]').forEach((b) => b.addEventListener('click', () => {
       document.querySelectorAll('.tabs [data-tab]').forEach((x) => x.classList.toggle('on', x === b));
       document.querySelectorAll('main .tab').forEach((t) => t.classList.toggle('on', t.id === 'tab-' + b.dataset.tab));
+      // 숨겨진 동안 그린 이름표는 크기 측정이 0 이라 마을 탭으로 돌아오면 다시 그린다
+      if (b.dataset.tab === 'village' && G.st) renderVillage();
     }));
     document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
     refresh();

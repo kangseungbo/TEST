@@ -1,0 +1,19 @@
+/* art.js 그림 공통 움직임 (게임·관리자 공용) */
+.vg-smoke { opacity: 0; animation: vg-smoke 3s linear infinite; }
+@keyframes vg-smoke {
+  0% { opacity: 0; transform: translate(0, 0) scale(.6); }
+  20% { opacity: .75; }
+  100% { opacity: 0; transform: translate(6px, -26px) scale(1.6); }
+}
+.vg-smoke { transform-box: fill-box; transform-origin: center; }
+.vg-flag { transform-box: fill-box; transform-origin: left center; animation: vg-flag 2.4s ease-in-out infinite alternate; }
+@keyframes vg-flag { from { transform: skewY(-4deg) scaleX(.94); } to { transform: skewY(4deg) scaleX(1); } }
+.vg-glow { animation: vg-glow 1.3s ease-in-out infinite alternate; }
+@keyframes vg-glow { from { fill: #f39c12; } to { fill: #ffd35a; } }
+@media (prefers-reduced-motion: reduce) { .vg-smoke, .vg-flag, .vg-glow { animation: none; } .vg-smoke { opacity: .5; } }
+
+/* 관리자 그림 탭 */
+.artgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+.artgrid.wide { grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); }
+.artcard { background: #efe2c2; border: 1px solid #e3d3ab; border-radius: 6px; text-align: center; font-size: .85em; padding-bottom: 4px; }
+.artcard svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }

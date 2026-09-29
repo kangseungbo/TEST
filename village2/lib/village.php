@@ -634,9 +634,6 @@ function vg_state(int $vid, array $settled): array
     foreach ($logs as &$l) $l['t'] = (float)$l['t'];
     unset($l);
 
-    $imgs = [];
-    foreach (vg_images_all() as $k => $_) $imgs[$k] = vg_image_url($k);
-
     $cap = $R['cap'];
     $caps = [];
     foreach (VG_RES as $r) $caps[$r] = is_finite(vg_res_cap($r, $cap)) ? $cap : null;
@@ -660,13 +657,9 @@ function vg_state(int $vid, array $settled): array
         'categories' => vg_building_categories(),
         'res_names' => vg_res_names(),
         'logs' => $logs,
-        'images' => $imgs,
         'crit' => $settled['crit'] ?? [],
         'ui' => [
             'poll_sec' => max(5, (int)S('poll_sec')),
-            'wall_img_scale' => (float)S('wall_img_scale'),
-            'wall_back_offset' => (float)S('wall_back_offset'),
-            'wall_front_offset' => (float)S('wall_front_offset'),
             'demolish_refund_pct' => (float)S('demolish_refund_pct'),
             'cancel_refund_pct' => (float)S('build_cancel_refund_pct'),
         ],

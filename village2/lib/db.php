@@ -2,9 +2,9 @@
 // DB 연결 + 첫 실행 시 DB/스키마 자동 생성.
 // 스키마 변경은 vg_migrations() 에 새 번호를 추가하는 방식으로만 한다 (기존 번호 수정 금지).
 
-const VG_SCHEMA_VERSION = 1;
+const VG_SCHEMA_VERSION = 2;
 // 설정/건물 기본값 목록이 바뀌면 올린다 → 새 설정 키/새 건물이 기존 DB 에 추가된다.
-const VG_DEFAULTS_VERSION = 1;
+const VG_DEFAULTS_VERSION = 2;
 
 function vg_db(?PDO $use = null): PDO
 {
@@ -149,6 +149,10 @@ function vg_migrations(): array
                 updated_at DOUBLE NOT NULL
             ) $E",
         ],
+        // 그림은 전부 코드로 그리므로 이미지 업로드 기능 제거
+        2 => [
+            "DROP TABLE IF EXISTS vg_images",
+        ],
     ];
 }
 
@@ -163,6 +167,9 @@ function vg_sync_defaults(PDO $pdo): void
     foreach (vg_setting_defs() as $k => $d) {
         $st->execute([$k, vg_setting_to_str($d[0]), $d[1], $d[2], $d[3], $d[4] ?? '', $i++]);
     }
+    // 코드에서 없어진 설정 키는 지운다
+    $keys = array_keys(vg_setting_defs());
+    $pdo->prepare('DELETE FROM vg_settings WHERE skey NOT IN (' . implode(',', array_fill(0, count($keys), '?')) . ')')->execute($keys);
     vg_insert_building_defs($pdo, false);
 }
 

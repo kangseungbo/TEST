@@ -53,9 +53,6 @@ function vg_setting_defs(): array
         'start_buildings' => ['farm,lumber', 'str', 'start', '시작 건물', '새 마을에 Lv1 로 지어 주는 건물 코드 (쉼표 구분)'],
 
         // 화면
-        'wall_img_scale'    => [1.0, 'float', 'display', '성벽 이미지 크기 배수', '성벽 뒤/앞 이미지 가로 크기 배수 (1 = 마을 둘레 폭)'],
-        'wall_back_offset'  => [0, 'float', 'display', '뒤 성벽 세로 보정(px)', '+ 면 아래로'],
-        'wall_front_offset' => [0, 'float', 'display', '앞 성벽 세로 보정(px)', '+ 면 아래로'],
         'poll_sec'          => [20, 'int', 'display', '화면 자동 갱신(초)', '마을 화면이 서버 상태를 다시 읽는 주기'],
     ];
 }
