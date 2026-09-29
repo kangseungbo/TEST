@@ -2,9 +2,9 @@
 // DB 연결 + 첫 실행 시 DB/스키마 자동 생성.
 // 스키마 변경은 vg_migrations() 에 새 번호를 추가하는 방식으로만 한다 (기존 번호 수정 금지).
 
-const VG_SCHEMA_VERSION = 2;
+const VG_SCHEMA_VERSION = 3;
 // 설정/건물 기본값 목록이 바뀌면 올린다 → 새 설정 키/새 건물이 기존 DB 에 추가된다.
-const VG_DEFAULTS_VERSION = 2;
+const VG_DEFAULTS_VERSION = 3;
 
 function vg_db(?PDO $use = null): PDO
 {
@@ -153,6 +153,85 @@ function vg_migrations(): array
         2 => [
             "DROP TABLE IF EXISTS vg_images",
         ],
+        // 3단계: 주민·병종·훈련 대기열·대장간 연구
+        3 => [
+            "CREATE TABLE vg_unit_defs (
+                code VARCHAR(32) PRIMARY KEY,
+                name VARCHAR(50) NOT NULL,
+                train_bld VARCHAR(32) NOT NULL DEFAULT '',
+                req_level INT NOT NULL DEFAULT 1,
+                category VARCHAR(16) NOT NULL DEFAULT 'infantry',
+                cost_json VARCHAR(500) NOT NULL DEFAULT '{}',
+                train_time DOUBLE NOT NULL DEFAULT 30,
+                upkeep DOUBLE NOT NULL DEFAULT 10,
+                attack DOUBLE NOT NULL DEFAULT 10,
+                defense DOUBLE NOT NULL DEFAULT 10,
+                speed DOUBLE NOT NULL DEFAULT 60,
+                carry DOUBLE NOT NULL DEFAULT 10,
+                ranged TINYINT NOT NULL DEFAULT 0,
+                counters VARCHAR(255) NOT NULL DEFAULT '',
+                sort_order INT NOT NULL DEFAULT 0,
+                enabled TINYINT NOT NULL DEFAULT 1,
+                descr VARCHAR(500) NOT NULL DEFAULT ''
+            ) $E",
+            "CREATE TABLE vg_village_units (
+                village_id INT NOT NULL,
+                unit_code VARCHAR(32) NOT NULL,
+                count INT NOT NULL DEFAULT 0,
+                PRIMARY KEY (village_id, unit_code)
+            ) $E",
+            "CREATE TABLE vg_train_queue (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                village_id INT NOT NULL,
+                bld_code VARCHAR(32) NOT NULL,
+                unit_code VARCHAR(32) NOT NULL,
+                total INT NOT NULL,
+                done INT NOT NULL DEFAULT 0,
+                unit_progress DOUBLE NOT NULL DEFAULT 0,
+                progress_at DOUBLE NOT NULL DEFAULT 0,
+                cost_json VARCHAR(500) NOT NULL DEFAULT '{}',
+                created_at DOUBLE NOT NULL,
+                KEY idx_village (village_id)
+            ) $E",
+            "CREATE TABLE vg_research_defs (
+                code VARCHAR(32) PRIMARY KEY,
+                name VARCHAR(50) NOT NULL,
+                effect VARCHAR(32) NOT NULL,
+                target VARCHAR(16) NOT NULL DEFAULT 'all',
+                value_per_level DOUBLE NOT NULL DEFAULT 5,
+                max_level INT NOT NULL DEFAULT 10,
+                req_smithy INT NOT NULL DEFAULT 1,
+                cost_json VARCHAR(500) NOT NULL DEFAULT '{}',
+                cost_growth DOUBLE NOT NULL DEFAULT 1.6,
+                base_time DOUBLE NOT NULL DEFAULT 60,
+                time_growth DOUBLE NOT NULL DEFAULT 1.5,
+                sort_order INT NOT NULL DEFAULT 0,
+                enabled TINYINT NOT NULL DEFAULT 1,
+                descr VARCHAR(500) NOT NULL DEFAULT ''
+            ) $E",
+            "CREATE TABLE vg_research (
+                village_id INT NOT NULL,
+                code VARCHAR(32) NOT NULL,
+                level INT NOT NULL DEFAULT 0,
+                target_level INT NOT NULL DEFAULT 0,
+                start DOUBLE NULL,
+                finish DOUBLE NULL,
+                PRIMARY KEY (village_id, code)
+            ) $E",
+            "CREATE TABLE vg_villagers (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                village_id INT NOT NULL,
+                name VARCHAR(30) NOT NULL,
+                xp DOUBLE NOT NULL DEFAULT 0,
+                level INT NOT NULL DEFAULT 1,
+                building_id INT NULL,
+                job_code VARCHAR(32) NULL,
+                job_since DOUBLE NULL,
+                spec_code VARCHAR(32) NULL,
+                hired_at DOUBLE NOT NULL,
+                KEY idx_village (village_id)
+            ) $E",
+        ],
     ];
 }
 
@@ -171,6 +250,35 @@ function vg_sync_defaults(PDO $pdo): void
     $keys = array_keys(vg_setting_defs());
     $pdo->prepare('DELETE FROM vg_settings WHERE skey NOT IN (' . implode(',', array_fill(0, count($keys), '?')) . ')')->execute($keys);
     vg_insert_building_defs($pdo, false);
+    vg_insert_unit_defs($pdo, false);
+    vg_insert_research_defs($pdo, false);
+}
+
+function vg_insert_unit_defs(PDO $pdo, bool $overwrite): void
+{
+    $cols = ['code', 'name', 'train_bld', 'req_level', 'category', 'cost_json', 'train_time', 'upkeep', 'attack', 'defense',
+        'speed', 'carry', 'ranged', 'counters', 'sort_order', 'enabled', 'descr'];
+    $st = $pdo->prepare(($overwrite ? 'REPLACE' : 'INSERT IGNORE') . ' INTO vg_unit_defs (' . implode(',', $cols) . ') VALUES ('
+        . implode(',', array_fill(0, count($cols), '?')) . ')');
+    $i = 0;
+    foreach (vg_default_unit_defs() as $code => $d) {
+        $st->execute([$code, $d['name'], $d['train_bld'], $d['req_level'], $d['category'], json_encode($d['cost']),
+            $d['train_time'], $d['upkeep'], $d['attack'], $d['defense'], $d['speed'], $d['carry'], !empty($d['ranged']) ? 1 : 0,
+            implode(',', $d['counters'] ?? []), ($i++) * 10, 1, $d['descr'] ?? '']);
+    }
+}
+
+function vg_insert_research_defs(PDO $pdo, bool $overwrite): void
+{
+    $cols = ['code', 'name', 'effect', 'target', 'value_per_level', 'max_level', 'req_smithy', 'cost_json', 'cost_growth',
+        'base_time', 'time_growth', 'sort_order', 'enabled', 'descr'];
+    $st = $pdo->prepare(($overwrite ? 'REPLACE' : 'INSERT IGNORE') . ' INTO vg_research_defs (' . implode(',', $cols) . ') VALUES ('
+        . implode(',', array_fill(0, count($cols), '?')) . ')');
+    $i = 0;
+    foreach (vg_default_research_defs() as $code => $d) {
+        $st->execute([$code, $d['name'], $d['effect'], $d['target'], $d['value'], $d['max_level'], $d['req_smithy'],
+            json_encode($d['cost']), $d['cost_growth'] ?? 1.6, $d['base_time'], $d['time_growth'] ?? 1.5, ($i++) * 10, 1, $d['descr'] ?? '']);
+    }
 }
 
 function vg_insert_building_defs(PDO $pdo, bool $overwrite): void

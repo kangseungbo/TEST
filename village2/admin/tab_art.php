@@ -22,7 +22,7 @@ foreach ($defs as $code => $d) {
   <div class="artgrid wide" id="art-walls"></div>
 </section>
 <section class="card">
-  <h2>병종 <small class="muted">(3단계부터 훈련·부대에 사용)</small></h2>
+  <h2>주민·병종</h2>
   <div class="artgrid" id="art-units"></div>
 </section>
 <link rel="stylesheet" href="../assets/css/art.css?v=<?= filemtime(__DIR__ . '/../assets/css/art.css') ?>">
@@ -65,8 +65,12 @@ foreach ($defs as $code => $d) {
   }
 
   const uh = document.getElementById('art-units');
+  card(uh, '주민', 130, 160, (g) => {
+    mk('ellipse', { cx: 0, cy: 0, rx: 30, ry: 7, fill: 'rgba(60,40,20,.18)' }, g);
+    A.villager(mk('g', { transform: 'scale(1.4)' }, g));
+  });
   for (const code in A.UNIT_NAMES) {
-    card(uh, A.UNIT_NAMES[code], 130, 120, (g) => {
+    card(uh, A.UNIT_NAMES[code], 130, 160, (g) => {
       mk('ellipse', { cx: 0, cy: 0, rx: 30, ry: 7, fill: 'rgba(60,40,20,.18)' }, g);
       A.unit(mk('g', { transform: 'scale(1.4)' }, g), code);
     });

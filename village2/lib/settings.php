@@ -9,6 +9,9 @@ function vg_setting_categories(): array
         'build'      => '건설·철거',
         'production' => '생산·크리티컬',
         'resource'   => '자원·창고',
+        'villager'   => '주민',
+        'military'   => '병력·훈련',
+        'research'   => '연구',
         'start'      => '시작 조건',
         'display'    => '화면·표시',
     ];
@@ -43,6 +46,33 @@ function vg_setting_defs(): array
         // 자원·창고
         'storage_base'      => [5000, 'float', 'resource', '기본 창고 용량', '창고 없이 자원별로 보관 가능한 양'],
         'storage_cap_money' => [1, 'bool', 'resource', '돈도 창고 용량 적용', '끄면 돈은 무제한 보관'],
+
+        // 주민
+        'villager_cap_per_hall'       => [1, 'int', 'villager', '회관 레벨당 인구', '인구 상한 = 회관 레벨 × 이 값'],
+        'villager_food_each'          => [20, 'float', 'villager', '주민 식량 소비(시간당)', '주민 1명이 시간당 먹는 식량. 고용비는 없다'],
+        'villager_max_per_building'   => [1, 'int', 'villager', '건물당 주민 수', '생산 건물 한 채에 배치할 수 있는 주민 수'],
+        'villager_bonus_base_pct'     => [10, 'float', 'villager', '배치 기본 보너스(%)', '생산 건물에 배치하면 그 건물 생산량 증가'],
+        'villager_bonus_per_level_pct' => [2, 'float', 'villager', '주민 레벨당 보너스(%)', 'Lv2 부터 레벨이 오를 때마다 추가'],
+        'villager_spec_bonus_pct'     => [10, 'float', 'villager', '특화 보너스(%)', '특화된 건물 종류에서 일하면 추가'],
+        'villager_spec_hours'         => [24, 'float', 'villager', '특화까지 시간', '같은 종류 건물에서 이 시간만큼 계속 일하면 자동 특화'],
+        'villager_xp_hours_per_level' => [6, 'float', 'villager', '레벨업 필요 시간', 'Lv N → N+1 에 필요한 근무 시간 = 이 값 × N'],
+        'villager_max_level'          => [10, 'int', 'villager', '주민 최대 레벨', ''],
+
+        // 병력·훈련
+        'barracks_speed_per_level'   => [0.15, 'float', 'military', '훈련 건물 레벨당 속도', '훈련 속도 = 1 + 이 값 × (같은 종류 훈련 건물 레벨 합 − 1)'],
+        'train_speed_mult'           => [1.0, 'float', 'military', '전체 훈련 속도 배수', ''],
+        'train_cancel_refund_pct'    => [50, 'float', 'military', '훈련 취소 환급률(%)', '남은 수량 비용 중 돌려받는 비율'],
+        'train_queue_max'            => [5, 'int', 'military', '훈련 대기열 길이', '훈련 건물 종류마다 걸어 둘 수 있는 주문 수'],
+        'train_max_batch'            => [500, 'int', 'military', '한 번에 훈련할 최대 수', ''],
+        'counters_on'                => [1, 'bool', 'military', '병종 상성 사용', '끄면 상성 배수를 적용하지 않는다 (5단계 전투)'],
+        'counter_bonus_pct'          => [50, 'float', 'military', '상성 보너스(%)', '강한 상대에게 공격력 증가. 상대 부대 구성 비율로 가중평균'],
+        'starve_desert_pct_per_hour' => [5, 'float', 'military', '굶주림 이탈률(시간당 %)', '식량이 바닥난 동안 마을 병력이 떠나는 비율. 0 이면 끔'],
+        'worker_build_speed_pct'     => [1, 'float', 'military', '일꾼 1명당 건설 단축(%)', '마을에 있는 일꾼 수만큼 새로 시작하는 공사 시간 단축'],
+        'worker_build_speed_max_pct' => [50, 'float', 'military', '일꾼 건설 단축 최대(%)', ''],
+
+        // 연구
+        'research_speed_mult'     => [1.0, 'float', 'research', '연구 속도 배수', ''],
+        'research_max_concurrent' => [1, 'int', 'research', '동시 연구 수', ''],
 
         // 시작 조건
         'start_money'     => [800, 'float', 'start', '시작 돈', ''],

@@ -16,6 +16,12 @@ function vg_admin_action(string $do, array $P, array $F): string
         case 'player_finish': return vg_admin_player_finish((int)($P['vid'] ?? 0));
         case 'player_delete': return vg_admin_player_delete((int)($P['vid'] ?? 0));
         case 'reset':         return vg_admin_reset((string)($P['what'] ?? ''), (string)($P['confirm'] ?? ''));
+        case 'save_udefs':    return vg_admin_save_udefs($P['u'] ?? []);
+        case 'add_udef':      return vg_admin_add_udef($P);
+        case 'delete_udef':   return vg_admin_delete_udef((string)($P['code'] ?? ''));
+        case 'save_rdefs':    return vg_admin_save_rdefs($P['r'] ?? []);
+        case 'add_rdef':      return vg_admin_add_rdef($P);
+        case 'delete_rdef':   return vg_admin_delete_rdef((string)($P['code'] ?? ''));
     }
     throw new VgError('알 수 없는 요청입니다.');
 }
@@ -56,7 +62,7 @@ function vg_admin_bdef_row(array $d): array
     $cost = [];
     foreach (VG_RES as $r) {
         $a = (float)($d['cost'][$r] ?? 0);
-        if ($a > 0) $cost[$r] = $a;
+        if ($a > 0) $cost[$r] = $a == floor($a) ? (int)$a : $a;
     }
     $cat = (string)($d['category'] ?? 'production');
     if (!isset($cats[$cat])) throw new VgError('분류가 올바르지 않습니다.');
@@ -79,6 +85,10 @@ function vg_admin_save_bdefs(array $rows): string
 {
     $pdo = vg_db();
     $n = 0;
+    $link = $pdo->prepare('UPDATE vg_unit_defs SET train_bld = ? WHERE code = ?');
+    $unlink = $pdo->prepare("UPDATE vg_unit_defs SET train_bld = '' WHERE code = ? AND train_bld = ?");
+    $udefs = vg_udefs(true);
+    $links = 0;
     foreach ($rows as $code => $d) {
         $row = vg_admin_bdef_row($d);
         if ($code === 'hall') { $row['category'] = 'hall'; $row['enabled'] = 1; }
@@ -86,8 +96,16 @@ function vg_admin_save_bdefs(array $rows): string
         $st = $pdo->prepare("UPDATE vg_building_defs SET $sets WHERE code = ?");
         $st->execute([...array_values($row), $code]);
         $n += $st->rowCount();
+        // 병종 ↔ 훈련 건물 연결 (병종 탭에서도 같은 값을 편집)
+        if (!empty($d['train_link'])) {
+            $want = array_map('strval', $d['train_units'] ?? []);
+            foreach ($udefs as $uc => $u) {
+                if (in_array($uc, $want, true)) { if ($u['train_bld'] !== $code) { $link->execute([$code, $uc]); $links++; } }
+                elseif ($u['train_bld'] === $code) { $unlink->execute([$uc, $code]); $links++; }
+            }
+        }
     }
-    return "건물 정의 {$n}개를 바꿨습니다.";
+    return "건물 정의 {$n}개를 바꿨습니다." . ($links ? " (훈련 병종 연결 {$links}건 변경)" : '');
 }
 
 function vg_admin_add_bdef(array $P): string
@@ -119,7 +137,8 @@ function vg_admin_delete_bdef(string $code): string
 function vg_admin_player_save(int $vid, array $P): string
 {
     vg_tx(function (PDO $pdo) use ($vid, $P) {
-        ['res' => $res, 'blds' => $blds] = vg_settle($vid);
+        $X = vg_settle($vid);
+        ['res' => $res, 'blds' => $blds] = $X;
         foreach (VG_RES as $r) {
             if (isset($P['res'][$r]) && is_numeric($P['res'][$r])) $res[$r] = max(0, (float)$P['res'][$r]);
         }
@@ -135,12 +154,27 @@ function vg_admin_player_save(int $vid, array $P): string
             if ($lv <= 0 || $del) {
                 if ($b['code'] === 'hall') throw new VgError('마을회관은 지울 수 없고 Lv1 이상이어야 합니다.');
                 $pdo->prepare('DELETE FROM vg_buildings WHERE id = ?')->execute([$bid]);
+                vg_villagers_release_building($bid);
                 continue;
             }
             $lv = min($lv, $defs[$b['code']]['max_level'] ?? 99);
             // 레벨을 직접 바꾸면 진행 중 공사는 없앤다 (비용 환급 없음)
             $pdo->prepare('UPDATE vg_buildings SET level = ?, target_level = ?, build_start = NULL, build_finish = NULL WHERE id = ?')
                 ->execute([$lv, $lv, $bid]);
+        }
+        $up = $pdo->prepare('INSERT INTO vg_village_units (village_id, unit_code, count) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE count = VALUES(count)');
+        foreach ($P['units'] ?? [] as $code => $n) {
+            if (!isset(vg_udefs()[$code]) || !is_numeric($n)) continue;
+            $up->execute([$vid, $code, max(0, (int)$n)]);
+        }
+        $rup = $pdo->prepare('INSERT INTO vg_research (village_id, code, level, target_level) VALUES (?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE level = VALUES(level), target_level = VALUES(level), start = NULL, finish = NULL');
+        foreach ($P['research'] ?? [] as $code => $lv) {
+            $d = vg_rdefs()[$code] ?? null;
+            if (!$d || !is_numeric($lv)) continue;
+            $lv = max(0, min($d['max_level'], (int)$lv));
+            if ($lv === ($X['research'][$code]['level'] ?? 0)) continue;
+            $rup->execute([$vid, $code, $lv, $lv]);
         }
         if (isset($P['vname']) && trim($P['vname']) !== '') vg_act_rename($vid, (string)$P['vname']);
         vg_log($vid, 'admin', '관리자가 마을 정보를 수정했습니다.');
@@ -181,7 +215,9 @@ function vg_admin_player_finish(int $vid): string
 function vg_admin_delete_village_rows(PDO $pdo, ?int $vid): void
 {
     $w = $vid === null ? '' : ' WHERE village_id = ' . (int)$vid;
-    foreach (['vg_buildings', 'vg_resources', 'vg_logs'] as $t) $pdo->exec("DELETE FROM $t$w");
+    foreach (['vg_buildings', 'vg_resources', 'vg_logs', 'vg_villagers', 'vg_village_units', 'vg_train_queue', 'vg_research'] as $t) {
+        $pdo->exec("DELETE FROM $t$w");
+    }
     $pdo->exec('DELETE FROM vg_villages' . ($vid === null ? '' : ' WHERE id = ' . (int)$vid));
 }
 
@@ -206,6 +242,139 @@ function vg_admin_reset(string $what, string $confirm): string
         case 'bdefs':
             vg_insert_building_defs($pdo, true);
             return '기본 건물 정의를 기본값으로 되돌렸습니다. (직접 추가한 건물은 그대로)';
+        case 'udefs':
+            vg_insert_unit_defs($pdo, true);
+            return '기본 병종 정의를 기본값으로 되돌렸습니다. (직접 추가한 병종은 그대로)';
+        case 'rdefs':
+            vg_insert_research_defs($pdo, true);
+            return '기본 연구 정의를 기본값으로 되돌렸습니다. (직접 추가한 연구는 그대로)';
     }
     throw new VgError('알 수 없는 초기화 항목입니다.');
+}
+
+// ───────────── 병종 ─────────────
+
+function vg_admin_udef_row(array $d): array
+{
+    $cats = vg_unit_categories();
+    $cost = [];
+    foreach (VG_RES as $r) {
+        $a = (float)($d['cost'][$r] ?? 0);
+        if ($a > 0) $cost[$r] = $a == floor($a) ? (int)$a : $a;
+    }
+    $name = trim((string)($d['name'] ?? ''));
+    if ($name === '') throw new VgError('병종 이름을 입력하세요.');
+    $cat = (string)($d['category'] ?? 'infantry');
+    if (!isset($cats[$cat])) throw new VgError('병종 분류가 올바르지 않습니다.');
+    $bld = (string)($d['train_bld'] ?? '');
+    if ($bld !== '' && !isset(vg_bdefs()[$bld])) throw new VgError('훈련 건물이 올바르지 않습니다.');
+    $counters = array_values(array_intersect(array_map('strval', $d['counters'] ?? []), array_keys(vg_udefs())));
+    return [
+        'name' => mb_substr($name, 0, 50), 'train_bld' => $bld, 'req_level' => max(1, (int)($d['req_level'] ?? 1)),
+        'category' => $cat, 'cost_json' => json_encode($cost), 'train_time' => max(1, (float)($d['train_time'] ?? 30)),
+        'upkeep' => max(0, (float)($d['upkeep'] ?? 0)), 'attack' => max(0, (float)($d['attack'] ?? 0)),
+        'defense' => max(0, (float)($d['defense'] ?? 0)), 'speed' => max(1, (float)($d['speed'] ?? 60)),
+        'carry' => max(0, (float)($d['carry'] ?? 0)), 'ranged' => !empty($d['ranged']) ? 1 : 0,
+        'counters' => implode(',', $counters), 'sort_order' => (int)($d['sort_order'] ?? 0),
+        'enabled' => !empty($d['enabled']) ? 1 : 0, 'descr' => mb_substr(trim((string)($d['descr'] ?? '')), 0, 500),
+    ];
+}
+
+function vg_admin_save_udefs(array $rows): string
+{
+    $pdo = vg_db();
+    $n = 0;
+    foreach ($rows as $code => $d) {
+        $row = vg_admin_udef_row($d);
+        $sets = implode(', ', array_map(fn($k) => "$k = ?", array_keys($row)));
+        $st = $pdo->prepare("UPDATE vg_unit_defs SET $sets WHERE code = ?");
+        $st->execute([...array_values($row), $code]);
+        $n += $st->rowCount();
+    }
+    return "병종 정의 {$n}개를 바꿨습니다.";
+}
+
+function vg_admin_add_udef(array $P): string
+{
+    $code = strtolower(trim((string)($P['code'] ?? '')));
+    if (!preg_match('/^[a-z][a-z0-9_]{1,30}$/', $code)) throw new VgError('코드는 영문 소문자로 시작하는 영문·숫자·_ 2~31자');
+    $row = ['code' => $code] + vg_admin_udef_row($P);
+    $st = vg_db()->prepare('INSERT IGNORE INTO vg_unit_defs (' . implode(',', array_keys($row)) . ') VALUES ('
+        . implode(',', array_fill(0, count($row), '?')) . ')');
+    $st->execute(array_values($row));
+    if (!$st->rowCount()) throw new VgError('이미 있는 코드입니다.');
+    return "병종 '{$row['name']}' 을(를) 추가했습니다.";
+}
+
+function vg_admin_delete_udef(string $code): string
+{
+    $pdo = vg_db();
+    $st = $pdo->prepare('SELECT (SELECT COUNT(*) FROM vg_village_units WHERE unit_code = ? AND count > 0) + (SELECT COUNT(*) FROM vg_train_queue WHERE unit_code = ?)');
+    $st->execute([$code, $code]);
+    if ($st->fetchColumn() > 0) throw new VgError('이 병종을 가진 마을이나 훈련 중인 주문이 있어 지울 수 없습니다. 대신 사용 안 함으로 바꾸세요.');
+    $pdo->prepare('DELETE FROM vg_unit_defs WHERE code = ?')->execute([$code]);
+    $pdo->prepare('DELETE FROM vg_village_units WHERE unit_code = ?')->execute([$code]);
+    return '병종 정의를 지웠습니다.';
+}
+
+// ───────────── 연구 ─────────────
+
+function vg_admin_rdef_row(array $d): array
+{
+    $cost = [];
+    foreach (VG_RES as $r) {
+        $a = (float)($d['cost'][$r] ?? 0);
+        if ($a > 0) $cost[$r] = $a == floor($a) ? (int)$a : $a;
+    }
+    $name = trim((string)($d['name'] ?? ''));
+    if ($name === '') throw new VgError('연구 이름을 입력하세요.');
+    $effect = (string)($d['effect'] ?? '');
+    if (!isset(vg_research_effects()[$effect])) throw new VgError('연구 효과가 올바르지 않습니다.');
+    $target = (string)($d['target'] ?? 'all');
+    if ($target !== 'all' && !isset(vg_unit_categories()[$target])) throw new VgError('연구 대상이 올바르지 않습니다.');
+    return [
+        'name' => mb_substr($name, 0, 50), 'effect' => $effect, 'target' => $target,
+        'value_per_level' => (float)($d['value_per_level'] ?? 5), 'max_level' => max(1, (int)($d['max_level'] ?? 10)),
+        'req_smithy' => max(1, (int)($d['req_smithy'] ?? 1)), 'cost_json' => json_encode($cost),
+        'cost_growth' => max(0.01, (float)($d['cost_growth'] ?? 1.6)), 'base_time' => max(1, (float)($d['base_time'] ?? 60)),
+        'time_growth' => max(0.01, (float)($d['time_growth'] ?? 1.5)), 'sort_order' => (int)($d['sort_order'] ?? 0),
+        'enabled' => !empty($d['enabled']) ? 1 : 0, 'descr' => mb_substr(trim((string)($d['descr'] ?? '')), 0, 500),
+    ];
+}
+
+function vg_admin_save_rdefs(array $rows): string
+{
+    $pdo = vg_db();
+    $n = 0;
+    foreach ($rows as $code => $d) {
+        $row = vg_admin_rdef_row($d);
+        $sets = implode(', ', array_map(fn($k) => "$k = ?", array_keys($row)));
+        $st = $pdo->prepare("UPDATE vg_research_defs SET $sets WHERE code = ?");
+        $st->execute([...array_values($row), $code]);
+        $n += $st->rowCount();
+    }
+    return "연구 정의 {$n}개를 바꿨습니다.";
+}
+
+function vg_admin_add_rdef(array $P): string
+{
+    $code = strtolower(trim((string)($P['code'] ?? '')));
+    if (!preg_match('/^[a-z][a-z0-9_]{1,30}$/', $code)) throw new VgError('코드는 영문 소문자로 시작하는 영문·숫자·_ 2~31자');
+    $row = ['code' => $code] + vg_admin_rdef_row($P);
+    $st = vg_db()->prepare('INSERT IGNORE INTO vg_research_defs (' . implode(',', array_keys($row)) . ') VALUES ('
+        . implode(',', array_fill(0, count($row), '?')) . ')');
+    $st->execute(array_values($row));
+    if (!$st->rowCount()) throw new VgError('이미 있는 코드입니다.');
+    return "연구 '{$row['name']}' 을(를) 추가했습니다.";
+}
+
+function vg_admin_delete_rdef(string $code): string
+{
+    $pdo = vg_db();
+    $st = $pdo->prepare('SELECT COUNT(*) FROM vg_research WHERE code = ? AND (level > 0 OR finish IS NOT NULL)');
+    $st->execute([$code]);
+    if ($st->fetchColumn() > 0) throw new VgError('이 연구를 한 마을이 있어 지울 수 없습니다. 대신 사용 안 함으로 바꾸세요.');
+    $pdo->prepare('DELETE FROM vg_research_defs WHERE code = ?')->execute([$code]);
+    $pdo->prepare('DELETE FROM vg_research WHERE code = ?')->execute([$code]);
+    return '연구 정의를 지웠습니다.';
 }

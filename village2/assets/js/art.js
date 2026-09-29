@@ -944,14 +944,29 @@
   function arm(g, from, to, col) { line(g, from, to, OUT, 4.2); line(g, from, to, col, 3); circ(g, to[0], to[1], 1.8, C.skin, { 'stroke-width': 0.6 }); }
 
   const U = {};
-  U.militia = function (g) {
-    line(g, [11, 2], [9, -44], C.woodDark, 1.8);
-    for (const dx of [-2.5, 0, 2.5]) line(g, [9 + dx, -44], [9 + dx, -51], '#8a8f96', 1.1);
-    line(g, [6.5, -44], [11.5, -44], '#8a8f96', 1.1);
-    const b = body(g, { tunic: '#8a6a42', legs: '#5a4630' });
+  // 일꾼: 천 모자, 앞치마, 어깨에 멘 망치, 등에 진 목재
+  U.worker = function (g) {
+    poly(g, [[-13, -30], [-5, -34], [-3, -12], [-11, -9]], C.plank);
+    line(g, [-12, -26], [-4, -30], C.woodDark, 0.8);
+    line(g, [-11, -18], [-3, -21], C.woodDark, 0.8);
+    const b = body(g, { tunic: '#7d8a5a', legs: '#5a4630' });
+    path(g, 'M-4,-24 L5,-24 L6.5,-11 L-5.5,-11 Z', '#b89a68', -24, { 'stroke-width': 0.6 });
+    path(g, 'M-4.5,-34 Q0.5,-40 6,-34 L8,-33 L-4.5,-32.5 Z', '#9c5a2e', -40);
+    arm(g, b.shoulder, [9, -27], '#7d8a5a');
+    line(g, [9, -27], [2, -44], C.woodDark, 2);
+    poly(g, [[-1, -47], [6, -44], [5, -41], [-2, -44]], '#6f7a86', 0.8);
+    line(g, [-5, -15], [-5, -10], '#555', 1.2);
+  };
+  // 주민: 밀짚모자, 바구니
+  U.villager = function (g) {
+    const b = body(g, { tunic: '#b07a4a', legs: '#6b5337' });
     ell(g, 0.5, -36, 8.5, 2.2, C.thatch);
     path(g, 'M-4,-36 Q0.5,-43 5,-36 Z', shade(C.thatch, -0.1), -41);
-    arm(g, b.shoulder, [9.5, -22], '#8a6a42');
+    arm(g, b.shoulder, [8, -17], '#b07a4a');
+    path(g, 'M4,-18 L14,-18 L12.5,-10 L5.5,-10 Z', '#c89b52', -18);
+    path(g, 'M5,-18 Q9,-25 13,-18', 'none', null, { stroke: C.woodDark, 'stroke-width': 1 });
+    circ(g, 7.5, -19, 1.8, '#c0392b', { 'stroke-width': 0.4 });
+    circ(g, 10.5, -19.5, 1.8, '#6aa84f', { 'stroke-width': 0.4 });
   };
   U.spearman = function (g) {
     line(g, [-6, 4], [16, -54], C.woodDark, 1.8);
@@ -1065,10 +1080,14 @@
   };
 
   /** 병종 한 명(대). 발끝 (0,0), 반환: 높이 */
+  // 전용 그림이 없는 병종(관리자 추가)은 분류별 대표 그림
+  const UNIT_FALLBACK = { worker: 'worker', infantry: 'swordsman', ranged: 'archer', cavalry: 'cavalry', siege: 'catapult' };
+
   function unit(g, code, opts) {
     minY = 0;
     off = { y: 0, s: 1 };
-    if (U[code]) U[code](g, opts || {});
+    const f = U[code] || U[UNIT_FALLBACK[(opts && opts.category) || ''] || 'swordsman'];
+    f(g, opts || {});
     return -minY;
   }
   /** 건물 그림 안에 병종 그림을 소품으로 넣을 때 (높이 추적 유지) */
@@ -1077,10 +1096,10 @@
   }
 
   const UNIT_NAMES = {
-    militia: '민병', spearman: '창병', swordsman: '검사', guard: '근위기사', archer: '궁수',
+    worker: '일꾼', spearman: '창병', swordsman: '검사', guard: '근위기사', archer: '궁수',
     cavalry: '기병', elephant: '코끼리병', ram: '공성추', catapult: '투석기',
   };
 
-  const VgArt = { building, scaffold, wall, unit, UNIT_NAMES, iso, shade };
+  const VgArt = { building, scaffold, wall, unit, UNIT_NAMES, iso, shade, villager: (g) => unit(g, 'villager') };
   global.VgArt = VgArt;
 })(window);

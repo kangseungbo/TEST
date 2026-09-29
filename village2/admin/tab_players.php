@@ -34,6 +34,8 @@ $ago = function (float $t) use ($now): string {
     $vid = (int)$vid;
     $s = vg_tx(fn() => vg_settle($vid));
     $v = $s['village']; $res = $s['res']; $blds = $s['blds'];
+    $udefsAll = vg_udefs(); $rdefsAll = vg_rdefs();
+    $troops = array_sum($s['units']);
     $hall = vg_hall_level($blds);
     $busy = count(array_filter($blds, fn($b) => $b['build_finish'] !== null));
     $nr = vg_net_rates($res, $blds);
@@ -45,6 +47,9 @@ $ago = function (float $t) use ($now): string {
         <b><?= h($v['name']) ?></b> <span class="muted"><?= h($v['user_name']) ?> (<?= h($v['user_id']) ?>)</span>
         <span class="pill">회관 Lv<?= $hall ?></span>
         <span class="pill">건물 <?= count($blds) ?></span>
+        <span class="pill">주민 <?= count($s['vils']) ?>/<?= vg_villager_cap($hall) ?></span>
+        <span class="pill">병력 <?= number_format($troops) ?></span>
+        <?php if ($s['queue']): ?><span class="pill hot">훈련 <?= number_format(array_sum(array_map(fn($q) => $q['total'] - $q['done'], $s['queue']))) ?></span><?php endif; ?>
         <?php if ($busy): ?><span class="pill hot">공사 <?= $busy ?></span><?php endif; ?>
         <?php if ($ironNeg): ?><span class="pill warn" title="제련소 소모가 광산 생산보다 많음">철광석 순감소</span><?php endif; ?>
         <span class="resmini"><?php foreach (VG_RES as $r): ?><span><?= h($names[$r]) ?> <?= number_format($res[$r]) ?></span><?php endforeach; ?></span>
@@ -71,6 +76,25 @@ $ago = function (float $t) use ($now): string {
           <?php endforeach; ?>
         </div>
         <p class="muted small">레벨을 바꾸면 그 건물의 진행 중 공사는 환급 없이 사라진다. 0 또는 삭제 체크 = 건물 제거.</p>
+        <div class="minihead">마을 병력</div>
+        <div class="minirow">
+          <?php foreach ($udefsAll as $uc => $u): ?>
+            <label><?= h($u['name']) ?> <input type="number" min="0" name="units[<?= h($uc) ?>]" value="<?= (int)($s['units'][$uc] ?? 0) ?>"></label>
+          <?php endforeach; ?>
+        </div>
+        <div class="minihead">대장간 연구 레벨</div>
+        <div class="minirow">
+          <?php foreach ($rdefsAll as $rc => $rd): $rr = $s['research'][$rc] ?? null; ?>
+            <label><?= h($rd['name']) ?><?= $rr && $rr['finish'] !== null ? ' <small class="hot">(→' . $rr['target_level'] . ' 연구 중)</small>' : '' ?>
+              <input type="number" min="0" max="<?= $rd['max_level'] ?>" name="research[<?= h($rc) ?>]" value="<?= (int)($rr['level'] ?? 0) ?>"></label>
+          <?php endforeach; ?>
+        </div>
+        <?php if ($s['vils']): ?>
+          <div class="minihead">주민</div>
+          <div class="small muted"><?php foreach ($s['vils'] as $vv) { $wb = $vv['building_id'] ? ($blds[$vv['building_id']] ?? null) : null;
+            echo h($vv['name']) . ' Lv' . $vv['level'] . ($wb ? ' · ' . h($defs[$wb['code']]['name'] ?? '') : ' · 쉼') . ($vv['spec_code'] ? ' ★' . h($defs[$vv['spec_code']]['name'] ?? '') : '') . ' &nbsp; '; } ?></div>
+        <?php endif; ?>
+        <p class="muted small">병력·연구 레벨을 직접 바꾸면 진행 중인 그 연구는 취소된다(환급 없음).</p>
         <button class="btn primary">이 마을 저장</button>
       </form>
       <div class="pactions">

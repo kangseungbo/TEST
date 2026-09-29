@@ -5,6 +5,9 @@ $villages = $cnt('SELECT COUNT(*) FROM vg_villages');
 $active = $cnt('SELECT COUNT(*) FROM vg_villages WHERE last_seen > UNIX_TIMESTAMP() - 86400');
 $blds = $cnt('SELECT COUNT(*) FROM vg_buildings');
 $building = $cnt('SELECT COUNT(*) FROM vg_buildings WHERE build_finish IS NOT NULL');
+$troops = $cnt('SELECT COALESCE(SUM(count), 0) FROM vg_village_units');
+$vilCount = $cnt('SELECT COUNT(*) FROM vg_villagers');
+$training = $cnt('SELECT COALESCE(SUM(total - done), 0) FROM vg_train_queue');
 $recent = $pdo->query('SELECT v.name, v.user_name, l.t, l.msg FROM vg_logs l JOIN vg_villages v ON v.id = l.village_id
     WHERE l.kind <> \'crit\' ORDER BY l.id DESC LIMIT 15')->fetchAll();
 ?>
@@ -15,6 +18,9 @@ $recent = $pdo->query('SELECT v.name, v.user_name, l.t, l.msg FROM vg_logs l JOI
     <div><b><?= $active ?></b><span>24시간 내 접속</span></div>
     <div><b><?= $blds ?></b><span>건물</span></div>
     <div><b><?= $building ?></b><span>공사 중</span></div>
+    <div><b><?= number_format($vilCount) ?></b><span>주민</span></div>
+    <div><b><?= number_format($troops) ?></b><span>병력</span></div>
+    <div><b><?= number_format($training) ?></b><span>훈련 대기</span></div>
   </div>
   <p class="muted">DB <?= h($VG_CONFIG['db_name']) ?> · 스키마 v<?= h(vg_meta_get($pdo, 'schema_version')) ?>
     · 기본값 v<?= h(vg_meta_get($pdo, 'defaults_version')) ?> · PHP <?= PHP_VERSION ?> · 서버 시각 <?= date('Y-m-d H:i:s') ?></p>
@@ -24,7 +30,7 @@ $recent = $pdo->query('SELECT v.name, v.user_name, l.t, l.msg FROM vg_logs l JOI
   <ol class="stages">
     <li class="done">기반: DB 자동 생성, SSO, 설정, 관리자 골격</li>
     <li class="done">마을: 자원 축적, 건설·철거·배치, 격자 확장, 아이소메트릭 화면</li>
-    <li>주민·병종·훈련·대장간 연구</li>
+    <li class="done">주민·병종·훈련·대장간 연구</li>
     <li>육각 맵·이동</li>
     <li>합류·동맹·전투</li>
     <li>안개·시야·PvP 안전장치</li>

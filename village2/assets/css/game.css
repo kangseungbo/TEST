@@ -166,3 +166,47 @@ main { flex: 1; position: relative; min-height: 0; }
   .panel { top: auto; left: 0; right: 0; bottom: 0; width: 100%; max-height: 58%; border-radius: 12px 12px 0 0; }
   .stagebar { bottom: 10px; }
 }
+
+/* 주민·병력·연구 탭 */
+.pane { padding: 0 0 20px; }
+.pane .card { max-width: 1100px; margin: 12px auto; }
+.pane h2 { margin: 0 0 6px; font-size: 1.15em; }
+.pane h2 small { font-weight: 400; color: var(--ink-soft); font-size: .78em; }
+.head-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ok { color: var(--ok); }
+.small { font-size: .86em; }
+.tag { font-size: .72em; background: #e2cf9f; border-radius: 8px; padding: 1px 6px; margin-left: 4px; }
+.uart { display: block; flex: none; }
+.vgrid, .rgrid { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; padding: 0 16px; }
+.vcard, .rcard { border-radius: 10px; padding: 10px 12px; }
+.vtop, .utop { display: flex; gap: 8px; align-items: flex-start; }
+.vtop > div, .utop > div { flex: 1; min-width: 0; }
+.xpbar { height: 6px; background: #e6d6b2; border-radius: 3px; overflow: hidden; margin: 4px 0; }
+.xpbar i { display: block; height: 100%; background: var(--ok); }
+.vact { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.vact select { flex: 1; min-width: 120px; font: inherit; padding: 4px; border-radius: 6px; border: 1px solid var(--parch-edge); background: #fffaf0; }
+.ugrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; margin-top: 8px; }
+.ucard { background: rgba(255, 255, 255, .35); border: 1px solid #dcc596; border-radius: 8px; padding: 8px 10px; }
+.ucard.off { opacity: .6; }
+.ucard .stats { font-size: .82em; color: var(--ink-soft); }
+.ucard .descr { color: var(--ink-soft); margin: 4px 0; }
+.trow { display: flex; gap: 5px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+.trow input { width: 76px; font: inherit; padding: 3px 5px; border-radius: 6px; border: 1px solid var(--parch-edge); background: #fffaf0; }
+.queue { display: grid; gap: 4px; margin: 6px 0 4px; }
+.qrow { display: grid; grid-template-columns: auto auto 1fr auto auto; gap: 8px; align-items: center; padding: 4px 8px; background: rgba(255,255,255,.4); border-radius: 6px; font-size: .9em; }
+.qrow .pbar { margin: 0; }
+.qrow .qn { font-variant-numeric: tabular-nums; }
+.qrow .qleft { font-size: .85em; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.hgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+.hcard { display: flex; gap: 8px; align-items: center; background: rgba(255,255,255,.35); border-radius: 8px; padding: 6px 8px; }
+.rcard .rh { font-size: 1.05em; }
+.rcard .descr { color: var(--ink-soft); margin: 3px 0 6px; }
+.rcard .btn { margin-top: 6px; }
+.res.pop .amt small { color: var(--ink-soft); }
+.tile .vil { pointer-events: none; }
+.tabs button, .tabs a { white-space: nowrap; }
+@media (max-width: 720px) {
+  .tabs { overflow-x: auto; width: 100%; flex-wrap: nowrap; }
+  .qrow { grid-template-columns: 1fr auto; }
+  .qrow .pbar { grid-column: 1 / -1; }
+}

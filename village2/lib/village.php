@@ -41,11 +41,12 @@ function vg_level_cost(array $def, int $level): array
     return $out;
 }
 
-/** $level 로 올리는 데 걸리는 시간(초) */
-function vg_level_time(array $def, int $level): float
+/** $level 로 올리는 데 걸리는 시간(초). $cutPct = 일꾼 등에 의한 단축(%) */
+function vg_level_time(array $def, int $level, float $cutPct = 0.0): float
 {
     $speed = max(0.01, (float)S('build_speed_mult'));
-    return max(1.0, round($def['base_time'] * pow($def['time_growth'], max(0, $level - 1)) / $speed));
+    $cut = max(0.0, min(95.0, $cutPct));
+    return max(1.0, round($def['base_time'] * pow($def['time_growth'], max(0, $level - 1)) / $speed * (1 - $cut / 100)));
 }
 
 /** 레벨별 기본 수치 (생산 건물: 초당 생산량, 창고: 용량). 배수 적용 전 */
@@ -111,18 +112,12 @@ function vg_storage_cap(array $blds): float
     return $cap;
 }
 
-/** 건물별 추가 보너스 배수 (주민 배치 등은 3단계에서 연결) */
-function vg_building_bonus(array $b): float
-{
-    return 1.0;
-}
-
 /**
  * 현재 건물 기준 생산 정보.
  * per: bid => [res, rate]  (제련소 제외)
  * smelt: [gold => 초당 최대 금괴, iron => 초당 최대 철광석 소모, bids => [bid => gold rate]]
  */
-function vg_rates(array $blds): array
+function vg_rates(array $blds, array $bonusPct = []): array
 {
     $defs = vg_bdefs();
     $mult = vg_prod_mult(vg_hall_level($blds));
@@ -132,7 +127,7 @@ function vg_rates(array $blds): array
     foreach ($blds as $b) {
         $d = $defs[$b['code']] ?? null;
         if (!$d || !$d['enabled'] || !in_array($d['produces'], VG_RES, true)) continue;
-        $rate = vg_level_rate($d, (int)$b['level']) * $mult * vg_building_bonus($b);
+        $rate = vg_level_rate($d, (int)$b['level']) * $mult * (1 + ($bonusPct[$b['id']] ?? 0) / 100);
         if ($rate <= 0) continue;
         if ($b['code'] === 'smelter') {
             $smelt['gold'] += $rate;
@@ -185,12 +180,13 @@ function vg_res_cap(string $r, float $cap): float
 
 /**
  * 구간 생산 반영. $res 는 참조로 갱신, $crit 에 크리티컬 누적 [code => [n, res, amount]]
+ * $upkeep = 초당 식량 소비. 식량이 바닥난 시간(초)을 반환 (굶주림 처리용)
  */
-function vg_produce(array &$res, array $blds, float $t0, float $t1, array &$crit): void
+function vg_produce(array &$res, array $blds, float $t0, float $t1, array &$crit, array $bonusPct = [], float $upkeep = 0.0): float
 {
     $dt = $t1 - $t0;
-    if ($dt <= 0) return;
-    $R = vg_rates($blds);
+    if ($dt <= 0) return 0.0;
+    $R = vg_rates($blds, $bonusPct);
     $tick = max(1.0, (float)S('crit_tick_sec'));
     $cm = max(1.0, (float)S('crit_mult'));
     $gain = array_fill_keys(VG_RES, 0.0);
@@ -237,9 +233,21 @@ function vg_produce(array &$res, array $blds, float $t0, float $t1, array &$crit
         $gain['gold'] += $gold;
     }
 
+    // 식량 유지비. 생산이 모자라 재고가 바닥나면 그 뒤 시간은 굶주림
+    $starve = 0.0;
+    if ($upkeep > 0) {
+        $prodRate = $gain['food'] / $dt;
+        $end = $res['food'] + $gain['food'] - $upkeep * $dt;
+        if ($end < 0 && $upkeep > $prodRate) {
+            $starve = max(0.0, $dt - max(0.0, $res['food']) / ($upkeep - $prodRate));
+        }
+        $gain['food'] -= $upkeep * $dt;
+    }
+
     foreach (VG_RES as $r) {
         $res[$r] = vg_apply_delta((float)$res[$r], $gain[$r], vg_res_cap($r, $R['cap']));
     }
+    return $starve;
 }
 
 // ───────────────────────── 조회·생성 ─────────────────────────
@@ -316,7 +324,9 @@ function vg_create_village(string $userId, string $userName): array
 
 /**
  * 마을을 잠그고 now 까지 정산한다. 반드시 트랜잭션 안에서 호출.
- * 반환: ['village' => row, 'res' => [..], 'blds' => [id => row]]
+ * 시간을 사건(건설 완공·연구 완료·훈련 주문 완료) 단위로 잘라, 구간마다
+ * 생산·식량 유지비·굶주림 → 주민 근무 → 훈련 진행 순으로 계산한다.
+ * 반환: ['village', 'res', 'blds', 'vils', 'units', 'queue', 'research', 'crit']
  */
 function vg_settle(int $vid, ?float $now = null): array
 {
@@ -330,43 +340,79 @@ function vg_settle(int $vid, ?float $now = null): array
     if (!$v) throw new VgError('마을을 찾을 수 없습니다.');
     $st = $pdo->prepare('SELECT money, food, wood, iron, gold FROM vg_resources WHERE village_id = ? FOR UPDATE');
     $st->execute([$vid]);
-    $res = array_map('floatval', $st->fetch() ?: array_fill_keys(VG_RES, 0));
-    $blds = vg_load_buildings($vid);
+    $X = [
+        'village' => $v,
+        'res' => array_map('floatval', $st->fetch() ?: array_fill_keys(VG_RES, 0)),
+        'blds' => vg_load_buildings($vid),
+        'vils' => vg_load_villagers($vid),
+        'units' => vg_load_units($vid),
+        'queue' => vg_load_queue($vid),
+        'research' => vg_load_research($vid),
+        'crit' => [],
+        'udirty' => [], 'qdirty' => [], 'qdeleted' => [], 'vdirty' => [],
+    ];
 
     $t = (float)$v['last_settle'];
     if ($now < $t) $now = $t; // 서버 시계가 뒤로 갔을 때 방어
-    $crit = [];
-
-    $due = array_filter($blds, fn($b) => $b['build_finish'] !== null && $b['build_finish'] <= $now);
-    usort($due, fn($a, $b) => $a['build_finish'] <=> $b['build_finish'] ?: $a['id'] <=> $b['id']);
-    $done = $pdo->prepare('UPDATE vg_buildings SET level = target_level, build_start = NULL, build_finish = NULL WHERE id = ?');
     $defs = vg_bdefs();
-    foreach ($due as $b) {
-        $ft = max($t, $b['build_finish']);
-        vg_produce($res, $blds, $t, $ft, $crit);
-        $t = $ft;
-        $blds[$b['id']]['level'] = $b['target_level'];
-        $blds[$b['id']]['build_start'] = $blds[$b['id']]['build_finish'] = null;
-        $done->execute([$b['id']]);
-        $nm = $defs[$b['code']]['name'] ?? $b['code'];
-        vg_log($vid, 'build', $b['level'] == 0 ? "{$nm} 건설 완료" : "{$nm} Lv{$b['target_level']} 업그레이드 완료", $ft);
+    $bDone = $pdo->prepare('UPDATE vg_buildings SET level = target_level, build_start = NULL, build_finish = NULL WHERE id = ?');
+    $rDone = $pdo->prepare('UPDATE vg_research SET level = target_level, start = NULL, finish = NULL WHERE village_id = ? AND code = ?');
+
+    for ($guard = 0; $guard < 10000; $guard++) {
+        // 다음 사건 시각
+        $next = null;
+        foreach ($X['blds'] as $b) if ($b['build_finish'] !== null && $b['build_finish'] <= $now) $next = min($next ?? INF, $b['build_finish']);
+        foreach ($X['research'] as $r) if ($r['finish'] !== null && $r['finish'] <= $now) $next = min($next ?? INF, $r['finish']);
+        $qf = vg_queue_next_finish($X);
+        if ($qf !== null && $qf <= $now) $next = min($next ?? INF, $qf);
+        if ($next === null) break;
+        $next = max($t, $next);
+        vg_advance($X, $t, $next);
+        $t = $next;
+        foreach ($X['blds'] as $id => $b) {
+            if ($b['build_finish'] === null || $b['build_finish'] > $t) continue;
+            $X['blds'][$id]['level'] = $b['target_level'];
+            $X['blds'][$id]['build_start'] = $X['blds'][$id]['build_finish'] = null;
+            $bDone->execute([$id]);
+            $nm = $defs[$b['code']]['name'] ?? $b['code'];
+            vg_log($vid, 'build', $b['level'] == 0 ? "{$nm} 건설 완료" : "{$nm} Lv{$b['target_level']} 업그레이드 완료", $b['build_finish']);
+        }
+        foreach ($X['research'] as $code => $r) {
+            if ($r['finish'] === null || $r['finish'] > $t) continue;
+            $X['research'][$code]['level'] = $r['target_level'];
+            $X['research'][$code]['start'] = $X['research'][$code]['finish'] = null;
+            $rDone->execute([$vid, $code]);
+            $nm = vg_rdefs()[$code]['name'] ?? $code;
+            vg_log($vid, 'research', "{$nm} Lv{$r['target_level']} 연구 완료", $r['finish']);
+        }
     }
-    vg_produce($res, $blds, $t, $now, $crit);
+    vg_advance($X, $t, $now);
 
-    $pdo->prepare('UPDATE vg_resources SET money = ?, food = ?, wood = ?, iron = ?, gold = ? WHERE village_id = ?')
-        ->execute([$res['money'], $res['food'], $res['wood'], $res['iron'], $res['gold'], $vid]);
+    vg_save_res($vid, $X['res']);
+    vg_army_save($X);
+    vg_villagers_save($X);
     $pdo->prepare('UPDATE vg_villages SET last_settle = ? WHERE id = ?')->execute([$now, $vid]);
-    $v['last_settle'] = $now;
+    $X['village']['last_settle'] = $now;
 
-    if ($crit) {
+    if ($X['crit']) {
         $names = vg_res_names();
         $parts = [];
-        foreach ($crit as $code => $c) {
+        foreach ($X['crit'] as $code => $c) {
             $parts[] = ($defs[$code]['name'] ?? $code) . " ×{$c['n']} ({$names[$c['res']]} +" . number_format($c['amount']) . ')';
         }
         vg_log($vid, 'crit', '크리티컬 생산! ' . implode(', ', $parts), $now);
     }
-    return ['village' => $v, 'res' => $res, 'blds' => $blds, 'crit' => $crit];
+    return $X;
+}
+
+/** 사건 없는 한 구간 [t0, t1] 진행 */
+function vg_advance(array &$X, float $t0, float $t1): void
+{
+    if ($t1 <= $t0) return;
+    $starve = vg_produce($X['res'], $X['blds'], $t0, $t1, $X['crit'], vg_villager_bonus_map($X['vils']), vg_upkeep_per_sec($X));
+    if ($starve > 0) vg_starve($X, $starve, $t1);
+    vg_villagers_advance($X, $t0, $t1);
+    vg_queue_advance($X, $t1);
 }
 
 // ───────────────────────── 행동 ─────────────────────────
@@ -444,7 +490,7 @@ function vg_act_build(int $vid, string $code, int $slot): void
 {
     vg_tx(function () use ($vid, $code, $slot) {
         $now = vg_now();
-        ['res' => $res, 'blds' => $blds] = vg_settle($vid, $now);
+        ['res' => $res, 'blds' => $blds, 'units' => $units] = vg_settle($vid, $now);
         $def = vg_bdef($code);
         if (!$def['enabled']) throw new VgError('지금은 지을 수 없는 건물입니다.');
         if ($def['category'] === 'hall') throw new VgError('마을회관은 하나만 있습니다.');
@@ -463,7 +509,7 @@ function vg_act_build(int $vid, string $code, int $slot): void
         vg_check_build_slots($blds);
         $cost = vg_level_cost($def, 1);
         vg_pay($vid, $res, $cost);
-        $time = vg_level_time($def, 1);
+        $time = vg_level_time($def, 1, vg_worker_build_pct($units));
         vg_db()->prepare('INSERT INTO vg_buildings (village_id, code, slot, level, target_level, build_start, build_finish)
             VALUES (?, ?, ?, 0, 1, ?, ?)')->execute([$vid, $code, $slot, $now, $now + $time]);
         vg_log($vid, 'build', "{$def['name']} 건설 시작 (" . vg_fmt_cost($cost) . ')', $now);
@@ -474,7 +520,7 @@ function vg_act_upgrade(int $vid, int $bid): void
 {
     vg_tx(function () use ($vid, $bid) {
         $now = vg_now();
-        ['res' => $res, 'blds' => $blds] = vg_settle($vid, $now);
+        ['res' => $res, 'blds' => $blds, 'units' => $units] = vg_settle($vid, $now);
         $b = vg_building_owned($blds, $bid);
         if ($b['build_finish'] !== null) throw new VgError('이미 공사 중입니다.');
         $def = vg_bdef($b['code']);
@@ -487,7 +533,7 @@ function vg_act_upgrade(int $vid, int $bid): void
         vg_check_build_slots($blds);
         $cost = vg_level_cost($def, $to);
         vg_pay($vid, $res, $cost);
-        $time = vg_level_time($def, $to);
+        $time = vg_level_time($def, $to, vg_worker_build_pct($units));
         vg_db()->prepare('UPDATE vg_buildings SET target_level = ?, build_start = ?, build_finish = ? WHERE id = ?')
             ->execute([$to, $now, $now + $time, $bid]);
         vg_log($vid, 'build', "{$def['name']} Lv{$to} 업그레이드 시작 (" . vg_fmt_cost($cost) . ')', $now);
@@ -530,6 +576,7 @@ function vg_act_demolish(int $vid, int $bid): void
         }
         $refund = vg_scale_cost($spent, (float)S('demolish_refund_pct'));
         vg_db()->prepare('DELETE FROM vg_buildings WHERE id = ?')->execute([$bid]);
+        vg_villagers_release_building($bid);
         unset($blds[$bid]);
         $got = vg_refund($vid, $res, $blds, $refund);
         vg_log($vid, 'build', "{$def['name']} Lv{$b['level']} 철거 (환급: " . vg_fmt_cost(array_map('floor', $got)) . ')', $now);
@@ -565,9 +612,9 @@ function vg_act_rename(int $vid, string $name): void
 // ───────────────────────── 화면 상태 ─────────────────────────
 
 /** 현재 순생산량(초당). 제련소 철광석 부족 시 실제 가동률 반영 */
-function vg_net_rates(array $res, array $blds): array
+function vg_net_rates(array $res, array $blds, array $bonusPct = [], float $upkeepSec = 0.0): array
 {
-    $R = vg_rates($blds);
+    $R = vg_rates($blds, $bonusPct);
     $net = array_fill_keys(VG_RES, 0.0);
     foreach ($R['per'] as $p) $net[$p['res']] += $p['rate'];
     $S = $R['smelt'];
@@ -575,6 +622,7 @@ function vg_net_rates(array $res, array $blds): array
     if ($S['iron'] > 0 && $res['iron'] < 1 && $net['iron'] < $S['iron']) $util = $net['iron'] / $S['iron'];
     $net['iron'] -= $S['iron'] * $util;
     $net['gold'] += $S['gold'] * $util;
+    $net['food'] -= $upkeepSec;
     return ['net' => $net, 'smelt_util' => $util, 'rates' => $R];
 }
 
@@ -583,7 +631,9 @@ function vg_state(int $vid, array $settled): array
     ['village' => $v, 'res' => $res, 'blds' => $blds] = $settled;
     $defs = vg_bdefs();
     $hall = vg_hall_level($blds);
-    $NR = vg_net_rates($res, $blds);
+    $bonus = vg_villager_bonus_map($settled['vils']);
+    $NR = vg_net_rates($res, $blds, $bonus, vg_upkeep_per_sec($settled));
+    $cut = vg_worker_build_pct($settled['units']);
     $R = $NR['rates'];
     $headroom = (int)S('hall_headroom');
 
@@ -602,7 +652,7 @@ function vg_state(int $vid, array $settled): array
             $next = [
                 'level' => $to,
                 'cost' => vg_level_cost($d, $to),
-                'time' => vg_level_time($d, $to),
+                'time' => vg_level_time($d, $to, $cut),
                 'blocked' => $to > $lim ? "회관 Lv" . ($to - $headroom) . " 필요" : null,
                 'value' => vg_level_rate($d, $to) * ($d['category'] === 'storage' ? 1 : $R['mult']),
             ];
@@ -610,7 +660,8 @@ function vg_state(int $vid, array $settled): array
         $bl[] = [
             'id' => $b['id'], 'code' => $b['code'], 'slot' => $b['slot'], 'level' => $b['level'],
             'target_level' => $b['target_level'], 'build_start' => $b['build_start'], 'build_finish' => $b['build_finish'],
-            'produces' => $pres, 'rate' => $rate,
+            'produces' => $pres, 'rate' => $rate, 'bonus_pct' => $bonus[$b['id']] ?? 0,
+            'villagers' => array_values(array_map(fn($x) => $x['name'], array_filter($settled['vils'], fn($x) => $x['building_id'] === $b['id']))),
             'value' => $d['category'] === 'storage' ? vg_level_rate($d, $b['level']) : null,
             'next' => $next,
         ];
@@ -623,7 +674,7 @@ function vg_state(int $vid, array $settled): array
         $dl[$code] = [
             'name' => $d['name'], 'category' => $d['category'], 'produces' => $d['produces'], 'multi' => $d['multi'],
             'max_level' => $d['max_level'], 'req_hall' => $d['req_hall'], 'descr' => $d['descr'], 'count' => $count,
-            'cost' => vg_level_cost($d, 1), 'time' => vg_level_time($d, 1),
+            'cost' => vg_level_cost($d, 1), 'time' => vg_level_time($d, 1, $cut),
             'value' => vg_level_rate($d, 1) * ($d['category'] === 'storage' ? 1 : $R['mult']),
         ];
     }
@@ -638,7 +689,7 @@ function vg_state(int $vid, array $settled): array
     $caps = [];
     foreach (VG_RES as $r) $caps[$r] = is_finite(vg_res_cap($r, $cap)) ? $cap : null;
 
-    return [
+    return vg_state_army($settled) + vg_state_villagers($settled) + [
         'now' => vg_now(),
         'village' => ['id' => (int)$v['id'], 'name' => $v['name']],
         'res' => $res,
@@ -651,6 +702,7 @@ function vg_state(int $vid, array $settled): array
         'cells' => vg_cells_for_hall($hall),
         'cells_next' => vg_cells_for_hall($hall + 1),
         'max_builds' => (int)S('max_concurrent_builds'),
+        'build_cut_pct' => $cut,
         'layout' => vg_slot_layout(),
         'buildings' => $bl,
         'defs' => $dl,

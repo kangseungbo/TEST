@@ -54,7 +54,21 @@ function timeWarp(int $vid, float $dt): void
     $pdo->prepare('UPDATE vg_villages SET last_settle = last_settle - ? WHERE id = ?')->execute([$dt, $vid]);
     $pdo->prepare('UPDATE vg_buildings SET build_start = build_start - ?, build_finish = build_finish - ? WHERE village_id = ? AND build_finish IS NOT NULL')
         ->execute([$dt, $dt, $vid]);
+    $pdo->prepare('UPDATE vg_train_queue SET progress_at = progress_at - ? WHERE village_id = ? AND progress_at > 0')->execute([$dt, $vid]);
+    $pdo->prepare('UPDATE vg_research SET start = start - ?, finish = finish - ? WHERE village_id = ? AND finish IS NOT NULL')->execute([$dt, $dt, $vid]);
+    $pdo->prepare('UPDATE vg_villagers SET job_since = job_since - ? WHERE village_id = ? AND job_since IS NOT NULL')->execute([$dt, $vid]);
 }
+function addBld(int $vid, string $code, int $slot, int $lv): int
+{
+    vg_db()->prepare('INSERT INTO vg_buildings (village_id, code, slot, level, target_level) VALUES (?, ?, ?, ?, ?)')->execute([$vid, $code, $slot, $lv, $lv]);
+    return (int)vg_db()->lastInsertId();
+}
+function units(int $vid): array { return vg_load_units($vid); }
+function setUnits(int $vid, string $code, int $n): void
+{
+    vg_db()->prepare('INSERT INTO vg_village_units (village_id, unit_code, count) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE count = VALUES(count)')->execute([$vid, $code, $n]);
+}
+function rich(int $vid): void { setRes($vid, ['money' => 50000, 'food' => 50000, 'wood' => 50000, 'iron' => 50000, 'gold' => 5000]); }
 function blds(int $vid): array { return vg_load_buildings($vid); }
 function byCode(int $vid, string $code): ?array
 {
@@ -207,6 +221,138 @@ timeWarp($v4, 100);
 $s = settle($v4);
 ok(near(res($v4)['food'] - $f0, 300, 0.1) && isset($s['crit']['farm']), '확률 100%, 배수 3 → 생산 3배 + 기록');
 setS('crit_chance_pct', 0);
+
+
+echo "[주민]\n";
+setS('storage_base', 1e9);
+$v6 = (int)vg_create_village('t6', '주민')['id'];
+vg_act_hire($v6);
+$vils = vg_load_villagers($v6);
+ok(count($vils) === 1, '주민 고용');
+expectErr(fn() => vg_act_hire($v6), '인구 상한 = 회관 Lv1 × 1', '인구');
+$vil = array_values($vils)[0];
+$farm6 = byCode($v6, 'farm');
+expectErr(fn() => vg_act_assign($v6, $vil['id'], byCode($v6, 'hall')['id']), '회관에는 배치 불가', '생산 건물');
+vg_act_assign($v6, $vil['id'], $farm6['id']);
+settle($v6);
+$f0 = res($v6)['food'];
+timeWarp($v6, 100);
+settle($v6);
+ok(near(res($v6)['food'] - $f0, 100 * 1.10 - 100 * 20 / 3600, 0.01), '배치 보너스 10% − 주민 식량 20/시간: ' . round(res($v6)['food'] - $f0, 3));
+timeWarp($v6, 25 * 3600);
+settle($v6);
+$vil = vg_load_villagers($v6)[$vil['id']];
+ok($vil['level'] === 3 && $vil['spec_code'] === 'farm', "25시간 근무 → Lv3(6·18시간), 농장 특화: Lv{$vil['level']} {$vil['spec_code']}");
+ok(near(vg_villager_bonus_pct($vil), 10 + 2 * 2 + 10), '보너스 = 기본 10 + 레벨 4 + 특화 10 = 24%');
+vg_act_assign($v6, $vil['id'], byCode($v6, 'lumber')['id']);
+$vil = vg_load_villagers($v6)[$vil['id']];
+ok($vil['job_code'] === 'lumber' && $vil['spec_code'] === 'farm' && near(vg_villager_bonus_pct($vil), 14), '다른 일로 옮기면 특화 보너스 없음 (14%)');
+vg_act_demolish($v6, byCode($v6, 'lumber')['id']);
+ok(vg_load_villagers($v6)[$vil['id']]['building_id'] === null, '건물 철거 → 주민은 쉬는 상태');
+vg_act_fire($v6, $vil['id']);
+ok(!vg_load_villagers($v6), '주민 내보내기');
+
+echo "[훈련]\n";
+$v7 = (int)vg_create_village('t7', '훈련')['id'];
+rich($v7);
+expectErr(fn() => vg_act_train($v7, 'spearman', 3), '병영 없이 훈련 불가', '병영');
+$bar1 = addBld($v7, 'barracks', 3, 1);
+vg_act_train($v7, 'spearman', 3);
+ok(near(res($v7)['money'], 50000 - 120, 0.1), '비용 3명분 차감');
+timeWarp($v7, 50);
+settle($v7);
+$q = array_values(vg_load_queue($v7));
+ok((units($v7)['spearman'] ?? 0) === 2 && $q[0]['done'] === 2, '50초 → 25초짜리 2명 완성: ' . (units($v7)['spearman'] ?? 0));
+timeWarp($v7, 25);
+settle($v7);
+ok((units($v7)['spearman'] ?? 0) === 3 && !vg_load_queue($v7), '75초 → 3명 완성, 대기열 비움');
+expectErr(fn() => vg_act_train($v7, 'swordsman', 1), '검사는 병영 Lv3 필요', 'Lv3');
+// 병영 두 채 (Lv1 + Lv3) → 레벨 합 4 → 속도 1 + 0.15×3 = 1.45
+addBld($v7, 'barracks', 4, 3);
+vg_act_train($v7, 'spearman', 10);
+vg_act_train($v7, 'swordsman', 2);
+$ut = 25 / 1.45;
+timeWarp($v7, $ut * 10 + 35 / 1.45 * 1.5);
+settle($v7);
+ok((units($v7)['spearman'] ?? 0) === 13 && (units($v7)['swordsman'] ?? 0) === 1, '레벨 합 4 → 1.45배, 주문 순서대로 이어서 진행 (창병 10 → 검사 1)');
+$q = array_values(vg_load_queue($v7));
+ok(count($q) === 1 && near($q[0]['unit_progress'], 0.5, 0.01), '다음 1명 진행률 50% 유지');
+// 서로 다른 훈련 건물은 동시 진행
+addBld($v7, 'archery', 5, 1);
+vg_act_train($v7, 'archer', 2);
+timeWarp($v7, 60);
+settle($v7);
+ok((units($v7)['archer'] ?? 0) === 2 && (units($v7)['swordsman'] ?? 0) === 2, '궁사양성소 대기열은 병영과 동시 진행');
+// 취소 50% 환급
+vg_act_train($v7, 'spearman', 10);
+timeWarp($v7, $ut * 4.5);
+settle($v7);
+$before = res($v7);
+$qid = array_key_first(vg_load_queue($v7));
+vg_act_train_cancel($v7, $qid);
+ok(near(res($v7)['money'] - $before['money'], floor(40 * 6 * 0.5), 0.1) && (units($v7)['spearman'] ?? 0) === 17, '4명 완성 후 취소 → 남은 6명 비용 50% 환급');
+$qmax = (int)S('train_queue_max');
+for ($i = 0; $i < $qmax; $i++) vg_act_train($v7, 'spearman', 1);
+expectErr(fn() => vg_act_train($v7, 'spearman', 1), '대기열 길이 제한', '대기열');
+foreach (array_keys(vg_load_queue($v7)) as $id) vg_act_train_cancel($v7, $id);
+vg_act_disband($v7, 'spearman', 7);
+ok((units($v7)['spearman'] ?? 0) === 10, '해산 (환급 없음)');
+expectErr(fn() => vg_act_disband($v7, 'spearman', 11), '보유보다 많이 해산 불가');
+// 훈련 건물이 없어지면 대기열 멈춤
+vg_act_train($v7, 'archer', 5);
+vg_act_demolish($v7, byCode($v7, 'archery')['id']);
+timeWarp($v7, 600);
+settle($v7);
+ok((units($v7)['archer'] ?? 0) === 2, '궁사양성소 철거 → 궁수 대기열 멈춤');
+
+echo "[유지비·굶주림·일꾼]\n";
+$v8 = (int)vg_create_village('t8', '유지')['id'];
+setUnits($v8, 'spearman', 100);
+settle($v8);
+$f0 = res($v8)['food'];
+timeWarp($v8, 360);
+settle($v8);
+ok(near(res($v8)['food'] - $f0, 360 * 1.0 - 100 * 10 * 360 / 3600, 0.05), '창병 100명 × 10/시간 식량 소비');
+setUnits($v8, 'spearman', 1000);
+setRes($v8, ['food' => 0]);
+settle($v8);
+timeWarp($v8, 3600);
+settle($v8);
+$left = units($v8)['spearman'];
+ok(near(res($v8)['food'], 0) && $left >= 948 && $left <= 952, "식량 바닥 1시간 → 5% 이탈: 남은 {$left}명");
+setUnits($v8, 'worker', 20);
+setRes($v8, ['food' => 50000]);
+vg_act_build($v8, 'farm', 3);
+$site = null;
+foreach (blds($v8) as $x) if ($x['slot'] === 3) $site = $x;
+ok(near($site['build_finish'] - $site['build_start'], 10), '일꾼 20명 → 건설 20% 단축 (12초 → 10초)');
+setUnits($v8, 'worker', 500);
+ok(near(vg_worker_build_pct(units($v8)), 50), '일꾼 단축 최대 50%');
+
+echo "[연구]\n";
+$v9 = (int)vg_create_village('t9', '연구')['id'];
+rich($v9);
+expectErr(fn() => vg_act_research($v9, 'weapons'), '대장간 없이 연구 불가', '대장간 Lv1');
+$sm = addBld($v9, 'smithy', 3, 1);
+expectErr(fn() => vg_act_research($v9, 'drill'), '훈련 교범은 대장간 Lv2', '대장간 Lv2');
+vg_act_research($v9, 'weapons');
+expectErr(fn() => vg_act_research($v9, 'armor'), '동시 연구 1개', '동시에');
+timeWarp($v9, 60);
+settle($v9);
+ok((vg_load_research($v9)['weapons']['level'] ?? 0) === 1, '무기단조 Lv1 완료 (60초)');
+vg_db()->prepare('UPDATE vg_buildings SET level = 2, target_level = 2 WHERE id = ?')->execute([$sm]);
+vg_act_research($v9, 'drill');
+$before = res($v9);
+vg_act_research_cancel($v9, 'drill');
+ok(near(res($v9)['money'] - $before['money'], 150, 0.1), '연구 취소 → 100% 환급');
+vg_act_research($v9, 'drill');
+timeWarp($v9, 80);
+settle($v9);
+$X = settle($v9);
+addBld($v9, 'barracks', 4, 1);
+$X = settle($v9);
+ok(near(vg_train_mult($X['blds'], $X['research'], 'barracks'), 1.05), '훈련 교범 Lv1 → 훈련 속도 ×1.05');
+setS('storage_base', 5000);
 
 echo "[동시 정산 — 원자적 선점]\n";
 $v5 = (int)vg_create_village('t5', '동시')['id'];

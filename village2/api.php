@@ -1,5 +1,6 @@
 <?php
-// 게임 JSON API. GET ?a=state, POST ?a=build|upgrade|cancel|demolish|move|rename (csrf 필수)
+// 게임 JSON API. GET ?a=state, POST ?a=행동 (csrf 필수)
+// 행동: build upgrade cancel demolish move rename / hire fire assign / train train_cancel disband / research research_cancel
 require __DIR__ . '/lib/bootstrap.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -32,6 +33,14 @@ try {
             case 'demolish': vg_act_demolish($vid, (int)($in['bid'] ?? 0)); break;
             case 'move':     vg_act_move($vid, (int)($in['bid'] ?? 0), (int)($in['slot'] ?? 0)); break;
             case 'rename':   vg_act_rename($vid, (string)($in['name'] ?? '')); break;
+            case 'hire':     vg_act_hire($vid); break;
+            case 'fire':     vg_act_fire($vid, (int)($in['vil'] ?? 0)); break;
+            case 'assign':   vg_act_assign($vid, (int)($in['vil'] ?? 0), (int)($in['bid'] ?? 0)); break;
+            case 'train':    vg_act_train($vid, (string)($in['unit'] ?? ''), (int)($in['count'] ?? 0)); break;
+            case 'train_cancel': vg_act_train_cancel($vid, (int)($in['qid'] ?? 0)); break;
+            case 'disband':  vg_act_disband($vid, (string)($in['unit'] ?? ''), (int)($in['count'] ?? 0)); break;
+            case 'research': vg_act_research($vid, (string)($in['code'] ?? '')); break;
+            case 'research_cancel': vg_act_research_cancel($vid, (string)($in['code'] ?? '')); break;
             default: vg_api_out(['ok' => false, 'error' => '알 수 없는 요청'], 400);
         }
     }

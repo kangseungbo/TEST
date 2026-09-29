@@ -43,6 +43,9 @@ $v = max(array_map('filemtime', glob(__DIR__ . '/assets/{js,css}/*.{js,css}', GL
     <div class="resbar" id="resbar"></div>
     <nav class="tabs">
       <button data-tab="village" class="on">마을</button>
+      <button data-tab="people">주민</button>
+      <button data-tab="army">병력</button>
+      <button data-tab="research">연구</button>
       <button data-tab="map">세계 맵</button>
       <button data-tab="log">기록</button>
       <?php if ($user['admin']): ?><a href="admin/" class="adminlink">관리자</a><?php endif; ?>
@@ -72,6 +75,10 @@ $v = max(array_map('filemtime', glob(__DIR__ . '/assets/{js,css}/*.{js,css}', GL
       </aside>
     </section>
 
+    <section id="tab-people" class="tab pane"></section>
+    <section id="tab-army" class="tab pane"></section>
+    <section id="tab-research" class="tab pane"></section>
+
     <section id="tab-map" class="tab">
       <div class="parch card soon">세계 맵은 4단계에서 열립니다.</div>
     </section>
@@ -88,6 +95,7 @@ $v = max(array_map('filemtime', glob(__DIR__ . '/assets/{js,css}/*.{js,css}', GL
   </script>
   <script src="assets/js/camera.js?v=<?= h($v) ?>"></script>
   <script src="assets/js/art.js?v=<?= h($v) ?>"></script>
+  <script src="assets/js/tabs.js?v=<?= h($v) ?>"></script>
   <script src="assets/js/village.js?v=<?= h($v) ?>"></script>
 <?php endif; ?>
 </body>

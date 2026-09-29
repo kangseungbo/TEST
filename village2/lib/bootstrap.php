@@ -5,6 +5,8 @@ require_once __DIR__ . '/settings.php';
 require_once __DIR__ . '/db.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/village.php';
+require_once __DIR__ . '/villagers.php';
+require_once __DIR__ . '/army.php';
 
 date_default_timezone_set($VG_CONFIG['timezone'] ?? 'Asia/Seoul');
 

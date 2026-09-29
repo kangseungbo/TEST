@@ -12,6 +12,7 @@ $fmtCost = function (array $c) use ($names): string {
     foreach ($c as $r => $a) $p[] = $names[$r] . ' ' . number_format($a);
     return implode(' · ', $p) ?: '-';
 };
+$udefsAll = vg_udefs(true);
 $inUse = [];
 foreach ($pdo->query('SELECT code, COUNT(*) n FROM vg_buildings GROUP BY code') as $r) $inUse[$r['code']] = (int)$r['n'];
 
@@ -79,6 +80,15 @@ $smeltWarn = array_filter($smeltRows, fn($r) => $r[3] < 0);
           <label class="chk"><input type="checkbox" name="<?= $f ?>[multi]" value="1" <?= $d['multi'] ? 'checked' : '' ?>> 여러 채</label>
           <label class="chk"><input type="checkbox" name="<?= $f ?>[enabled]" value="1" <?= $d['enabled'] ? 'checked' : '' ?> <?= $code === 'hall' ? 'disabled checked' : '' ?>> 사용</label>
           <label class="wide">설명 <input name="<?= $f ?>[descr]" value="<?= h($d['descr']) ?>"></label>
+          <?php if (in_array($d['category'], ['military', 'hall'], true)): ?>
+            <div class="wide checks"><input type="hidden" name="<?= $f ?>[train_link]" value="1">
+              <span class="small">훈련 병종 (병종 탭과 같은 값):</span>
+              <?php foreach ($udefsAll as $uc => $u): ?>
+                <label class="chk"><input type="checkbox" name="<?= $f ?>[train_units][]" value="<?= h($uc) ?>" <?= $u['train_bld'] === $code ? 'checked' : '' ?>>
+                  <?= h($u['name']) ?><?= $u['train_bld'] !== '' && $u['train_bld'] !== $code ? ' <small class="muted">(' . h($defs[$u['train_bld']]['name'] ?? $u['train_bld']) . ')</small>' : '' ?></label>
+              <?php endforeach; ?>
+            </div>
+          <?php endif; ?>
         </div>
         <details class="lvprev"><summary>레벨별 미리보기</summary>
           <table class="grid compact">

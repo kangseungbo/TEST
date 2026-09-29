@@ -99,3 +99,6 @@ details > summary { cursor: pointer; }
   .srow { grid-template-columns: 1fr; }
   .resetrow { grid-template-columns: 1fr; }
 }
+.checks { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+.minihead { font-weight: 700; font-size: .85em; margin: 10px 0 2px; color: var(--soft); }
+.uprev { display: inline-flex; vertical-align: middle; }

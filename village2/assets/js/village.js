@@ -95,6 +95,7 @@
     renderVillage();
     renderPanel();
     renderLogs();
+    if (window.VgTabs) window.VgTabs.render(st);
     if (!first && st.crit) {
       for (const code in st.crit) {
         const c = st.crit[code];
@@ -135,6 +136,7 @@
           <span class="amt"></span>
           <span class="rate"></span>
         </div>`).join('');
+      bar.insertAdjacentHTML('beforeend', `<div class="res pop" title="인구 (주민 수 / 상한)"><span class="ico" style="background:#8a6a42">인</span><span class="nm">인구</span><span class="amt">${st.pop.count}<small>/${st.pop.cap}</small></span></div>`);
       $('#vname').textContent = st.village.name;
       $('#hallinfo').textContent = `회관 Lv${st.hall_level} · 칸 ${st.cells}/16`;
     }
@@ -225,6 +227,13 @@
       }
       const bg = el('g', { class: 'bld' + (G.moving === b.id ? ' moving' : '') }, g);
       const height = drawBuilding(bg, b);
+      if (b.villagers && b.villagers.length) {
+        b.villagers.forEach((nm, i) => {
+          const vg = el('g', { transform: `translate(${TW * 0.3 + i * 12},${TH * 0.22}) scale(0.75)`, class: 'vil' }, g);
+          Art.villager(vg);
+          el('title', {}, vg).textContent = nm;
+        });
+      }
       g.addEventListener('click', () => onSlotClick(slot, true));
       // 키 큰 건물은 이름표가 건물 몸통에 걸리더라도 뒤 타일 이름표와 겹치지 않는 높이까지만 올린다
       const top = p.y - Math.min(height + 10, LABEL_MAX_RISE);
@@ -326,11 +335,12 @@
   }
 
   // ───────────── 패널 ─────────────
-  function costHtml(cost) {
+  function costHtml(cost, mul) {
     const st = G.st;
     const keys = Object.keys(cost);
+    mul = mul || 1;
     if (!keys.length) return '<span class="muted">비용 없음</span>';
-    return keys.map((r) => `<span class="cost" data-r="${r}" data-amt="${cost[r]}"><i style="background:${RES_COLOR[r]}"></i>${esc(st.res_names[r])} ${fmt(cost[r])}</span>`).join(' ');
+    return keys.map((r) => `<span class="cost" data-r="${r}" data-each="${cost[r]}" data-amt="${cost[r] * mul}"><i style="background:${RES_COLOR[r]}"></i>${esc(st.res_names[r])} <b>${fmt(cost[r] * mul)}</b></span>`).join(' ');
   }
 
   function valueText(code, v) {
@@ -359,6 +369,7 @@
     body.innerHTML = html;
     panel.scrollTop = scroll;
     body.querySelectorAll('[data-act]').forEach((n) => n.addEventListener('click', onPanelAction));
+    body.querySelectorAll('[data-go]').forEach((n) => n.addEventListener('click', () => showTab(n.dataset.go, n.dataset.anchor)));
     tickPanel();
   }
 
@@ -371,6 +382,11 @@
         h += `<p class="now">현재: 금괴 +${fmtRate(b.rate)}/s` + (st.smelt_util < 1 ? ` <span class="warn">(철광석 부족, 가동률 ${Math.round(st.smelt_util * 100)}%)</span>` : '') + '</p>';
       } else if (b.produces) h += `<p class="now">현재: ${esc(valueText(b.code, b.rate))}</p>`;
       else if (b.value) h += `<p class="now">현재: 보관 +${fmt(b.value)}</p>`;
+      if (b.villagers && b.villagers.length) h += `<p class="now">주민: ${b.villagers.map(esc).join(', ')} <span class="ok">(+${Math.round(b.bonus_pct)}%)</span></p>`;
+      if (d.category === 'production') h += `<p><button class="btn small" data-go="people">주민 배치하기</button></p>`;
+      const trains = st.train.find((g) => g.bld === b.code);
+      if (trains) h += `<p class="now">훈련: ${trains.units.map((u) => esc(u.name)).join(', ')} <button class="btn small" data-go="army" data-anchor="train-${esc(b.code)}">훈련하기</button></p>`;
+      if (b.code === 'smithy') h += `<p><button class="btn small" data-go="research">연구하기</button></p>`;
       if (isHall) h += `<p class="now">다른 건물 최대 레벨: Lv${b.level + st.hall_headroom} · 마을 칸 ${st.cells}칸 (다음 레벨 ${st.cells_next}칸)</p>`;
     }
     if (b.build_finish) {
@@ -382,7 +398,7 @@
     if (n && !b.build_finish) {
       h += `<div class="next"><h3>Lv${n.level} 로 업그레이드</h3>
         <div class="costs">${costHtml(n.cost)}</div>
-        <div class="meta">시간 ${fmtDur(n.time)}${valueText(b.code, n.value) ? ' · ' + esc(valueText(b.code, n.value)) : ''}</div>
+        <div class="meta">시간 ${fmtDur(n.time)}${st.build_cut_pct > 0 ? ` <span class="ok">(일꾼 −${Math.round(st.build_cut_pct)}%)</span>` : ''}${valueText(b.code, n.value) ? ' · ' + esc(valueText(b.code, n.value)) : ''}</div>
         ${n.blocked ? `<div class="warn">${esc(n.blocked)}</div>` : ''}
         <button class="btn primary" data-act="upgrade" data-bid="${b.id}" data-cost='${JSON.stringify(n.cost)}' ${n.blocked ? 'disabled' : ''}>업그레이드</button></div>`;
     } else if (!n) {
@@ -487,11 +503,25 @@
       u.bar.setAttribute('width', Math.min(1, Math.max(0, (now - b.build_start) / Math.max(0.001, b.build_finish - b.build_start))) * u.w);
     }
     tickPanel();
-    // 완공 시각이 지나면 서버에서 다시 읽는다 (서버가 같은 시각에 완공 처리)
-    const due = G.st.buildings.some((b) => b.build_finish && b.build_finish <= now);
+    if (window.VgTabs) window.VgTabs.tick();
+    // 완공·연구·훈련 주문 완료 시각이 지나면 서버에서 다시 읽는다 (서버가 같은 시각에 처리)
+    const due = G.st.buildings.some((b) => b.build_finish && b.build_finish <= now)
+      || G.st.research.some((r) => r.finish && r.finish <= now)
+      || G.st.train.some((g) => g.queue.some((q) => q.finish && q.finish <= now));
     const pollDue = Date.now() - G.lastPoll > G.st.ui.poll_sec * 1000;
     if ((due || pollDue) && !G.refreshing && Date.now() - G.lastPoll > 1000) refresh();
   }
+
+  function showTab(name, anchor) {
+    document.querySelectorAll('.tabs [data-tab]').forEach((x) => x.classList.toggle('on', x.dataset.tab === name));
+    document.querySelectorAll('main .tab').forEach((t) => t.classList.toggle('on', t.id === 'tab-' + name));
+    // 숨겨진 동안 그린 이름표는 크기 측정이 0 이라 마을 탭으로 돌아오면 다시 그린다
+    if (name === 'village' && G.st) renderVillage();
+    if (anchor) { const n = document.getElementById(anchor); if (n) n.scrollIntoView({ block: 'start' }); }
+  }
+
+  // 다른 화면(tabs.js)과 나눠 쓰는 것들
+  window.VgCore = { G, api, toast, esc, fmt, fmtRate, fmtDur, serverNow, curRes, canAfford, costHtml: (c, mul) => costHtml(c, mul), showTab, RES_COLOR, el };
 
   // ───────────── 시작 ─────────────
   function init() {
@@ -510,12 +540,7 @@
       const nm = prompt('새 마을 이름 (1~30자)', G.st.village.name);
       if (nm && nm.trim() && nm !== G.st.village.name) { if (await api('rename', { name: nm })) toast('마을 이름을 바꿨습니다.'); }
     };
-    document.querySelectorAll('.tabs [data-tab]').forEach((b) => b.addEventListener('click', () => {
-      document.querySelectorAll('.tabs [data-tab]').forEach((x) => x.classList.toggle('on', x === b));
-      document.querySelectorAll('main .tab').forEach((t) => t.classList.toggle('on', t.id === 'tab-' + b.dataset.tab));
-      // 숨겨진 동안 그린 이름표는 크기 측정이 0 이라 마을 탭으로 돌아오면 다시 그린다
-      if (b.dataset.tab === 'village' && G.st) renderVillage();
-    }));
+    document.querySelectorAll('.tabs [data-tab]').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
     document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
     refresh();
     setInterval(tick, 250);
