@@ -131,6 +131,16 @@
       h += '</div></div>';
     }
 
+    if (st.my_armies.length) {
+      h += `<div class="parch card"><h2>출진한 부대 <small>${st.my_armies.length}/${st.march.army_max}</small></h2><div class="hgrid">`;
+      for (const a of st.my_armies) {
+        const names = Object.entries(a.units).map(([c, n]) => `${esc(st.unit_names[c] || c)} ${n}`).join(', ');
+        const where = a.state === 'moving' ? (a.returning ? '회군 중' : '이동 중') : `주둔 (${a.q}, ${a.r})`;
+        h += `<div class="hcard"><div><b>${esc(a.name)}</b> ${fmt(a.total)}명 <span class="small muted">${where}${a.task === 'gather' ? ' · 채집' : a.task === 'bridge' ? ' · 다리 건설' : ''}</span>
+          <div class="small">${names}</div></div></div>`;
+      }
+      h += `</div><p><button class="btn small" data-go-map="1">세계 맵에서 보기</button></p></div>`;
+    }
     h += `<div class="parch card"><h2>마을 병력</h2>`;
     if (!st.home_units.length) h += '<p class="muted">아직 병력이 없습니다.</p>';
     else {
@@ -271,6 +281,7 @@
     const t = e.target.closest('button');
     if (!t || !core) return;
     const d = t.dataset;
+    if (d.goMap) { core.showTab('map'); return; }
     if (d.add) {
       const n = $(`input[data-count="${d.for}"]`);
       n.value = countOf(d.for) === 1 && n.value === '1' ? +d.add : countOf(d.for) + +d.add;

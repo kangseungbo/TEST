@@ -16,10 +16,10 @@ $TABS = [
     'buildings' => ['건물', null],
     'units'    => ['병종', null],
     'research' => ['연구', null],
-    'map'      => ['지형·맵', 4],
+    'map'      => ['지형·맵', null],
     'art'      => ['그림', null],
     'players'  => ['플레이어', null],
-    'armies'   => ['부대·전투기록', 5],
+    'armies'   => ['부대·전투기록', null],
     'events'   => ['이벤트(몬스터)', 7],
     'reset'    => ['초기화', null],
 ];

@@ -279,8 +279,13 @@ function vg_village_for_user(array $u): array
     $st = $pdo->prepare('SELECT * FROM vg_villages WHERE user_id = ?');
     $st->execute([$u['id']]);
     $v = $st->fetch();
-    if ($v) return $v;
-    return vg_create_village($u['id'], $u['name']);
+    if (!$v) $v = vg_create_village($u['id'], $u['name']);
+    if ($v['q'] === null) {
+        vg_map_ensure();
+        $st->execute([$u['id']]);
+        $v = $st->fetch();
+    }
+    return $v;
 }
 
 function vg_create_village(string $userId, string $userName): array
@@ -348,6 +353,8 @@ function vg_settle(int $vid, ?float $now = null): array
         'units' => vg_load_units($vid),
         'queue' => vg_load_queue($vid),
         'research' => vg_load_research($vid),
+        'armies' => vg_load_armies($vid),
+        'away' => vg_load_away_units($vid),
         'crit' => [],
         'udirty' => [], 'qdirty' => [], 'qdeleted' => [], 'vdirty' => [],
     ];
@@ -387,6 +394,7 @@ function vg_settle(int $vid, ?float $now = null): array
         }
     }
     vg_advance($X, $t, $now);
+    vg_armies_resolve($X, $now);
 
     vg_save_res($vid, $X['res']);
     vg_army_save($X);
@@ -689,7 +697,24 @@ function vg_state(int $vid, array $settled): array
     $caps = [];
     foreach (VG_RES as $r) $caps[$r] = is_finite(vg_res_cap($r, $cap)) ? $cap : null;
 
+    $mine = [];
+    foreach ($settled['armies'] as $a) $mine[] = ['id' => $a['id'], 'name' => $a['name'], 'state' => $a['state'], 'returning' => $a['returning'],
+        'arrive_at' => $a['arrive_at'], 'task' => $a['task'], 'q' => $a['q'], 'r' => $a['r'],
+        'units' => vg_army_counts($a), 'total' => array_sum(vg_army_counts($a))];
+    $udefs = vg_udefs();
     return vg_state_army($settled) + vg_state_villagers($settled) + [
+        'home' => $v['q'] === null ? null : ['q' => (int)$v['q'], 'r' => (int)$v['r']],
+        'my_armies' => $mine,
+        'away_units' => $settled['away'],
+        'march' => [
+            'army_max' => (int)S('army_max'), 'return_pct' => (float)S('march_return_speed_pct'),
+            'speed_mult' => (float)S('march_speed_mult'), 'bonus_pct' => vg_research_bonus($settled['research'], 'march_speed_pct'),
+            'unit_speed' => array_map(fn($u) => $u['speed'], $udefs),
+            'bridge_workers_min' => (int)S('bridge_workers_min'), 'bridge_wood' => (float)S('bridge_wood'),
+            'bridge_time_sec' => (float)S('bridge_time_sec'), 'gather_per_worker_hour' => (float)S('gather_per_worker_hour'),
+            'map_poll_sec' => max(2, (int)S('map_poll_sec')),
+        ],
+        'map_version' => (int)vg_meta_get(vg_db(), 'map_version'),
         'now' => vg_now(),
         'village' => ['id' => (int)$v['id'], 'name' => $v['name']],
         'res' => $res,

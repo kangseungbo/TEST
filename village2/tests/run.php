@@ -57,7 +57,24 @@ function timeWarp(int $vid, float $dt): void
     $pdo->prepare('UPDATE vg_train_queue SET progress_at = progress_at - ? WHERE village_id = ? AND progress_at > 0')->execute([$dt, $vid]);
     $pdo->prepare('UPDATE vg_research SET start = start - ?, finish = finish - ? WHERE village_id = ? AND finish IS NOT NULL')->execute([$dt, $dt, $vid]);
     $pdo->prepare('UPDATE vg_villagers SET job_since = job_since - ? WHERE village_id = ? AND job_since IS NOT NULL')->execute([$dt, $vid]);
+    $pdo->prepare('UPDATE vg_armies SET depart_at = depart_at - ?, arrive_at = arrive_at - ? WHERE village_id = ? AND depart_at IS NOT NULL')->execute([$dt, $dt, $vid]);
+    $pdo->prepare('UPDATE vg_armies SET task_start = task_start - ?, task_end = task_end - ? WHERE village_id = ? AND task_start IS NOT NULL')->execute([$dt, $dt, $vid]);
 }
+/** 시험용 작은 맵: 반지름 R 평원, $set = ['q,r' => [지형, 특수]] */
+function testMap(int $R, array $set = []): void
+{
+    $pdo = vg_db();
+    $pdo->exec('DELETE FROM vg_map_tiles');
+    $pdo->exec('UPDATE vg_villages SET q = NULL, r = NULL');
+    $ins = $pdo->prepare('INSERT INTO vg_map_tiles (q, r, terrain, feature) VALUES (?, ?, ?, ?)');
+    for ($q = -$R; $q <= $R; $q++) for ($r = max(-$R, -$q - $R); $r <= min($R, -$q + $R); $r++) {
+        [$t, $f] = $set["$q,$r"] ?? ['plain', ''];
+        $ins->execute([$q, $r, $t, $f]);
+    }
+    vg_map_tiles(true);
+}
+function placeAt(int $vid, int $q, int $r): void { vg_map_move_village($vid, $q, $r); }
+function army(int $vid): ?array { $a = vg_load_armies($vid); return $a ? reset($a) : null; }
 function addBld(int $vid, string $code, int $slot, int $lv): int
 {
     vg_db()->prepare('INSERT INTO vg_buildings (village_id, code, slot, level, target_level) VALUES (?, ?, ?, ?, ?)')->execute([$vid, $code, $slot, $lv, $lv]);
@@ -352,6 +369,119 @@ $X = settle($v9);
 addBld($v9, 'barracks', 4, 1);
 $X = settle($v9);
 ok(near(vg_train_mult($X['blds'], $X['research'], 'barracks'), 1.05), '훈련 교범 Lv1 → 훈련 속도 ×1.05');
+setS('storage_base', 5000);
+
+
+echo "[맵 생성]\n";
+$m1 = vg_map_build(1234, 10);
+$m2 = vg_map_build(1234, 10);
+ok($m1 === $m2 && count($m1) === 331, '같은 시드 → 같은 맵, 반지름 10 = 331타일');
+$kinds = array_count_values(array_column($m1, 't'));
+ok(($kinds['plain'] ?? 0) > 100 && isset($kinds['forest']), '평원·숲 등 여러 지형: ' . json_encode($kinds));
+$seed = vg_map_generate(777, 12);
+$vs = vg_db()->query('SELECT id, q, r FROM vg_villages')->fetchAll();
+$minD = 99;
+foreach ($vs as $i => $a) foreach ($vs as $j => $b) if ($i < $j) $minD = min($minD, vg_hex_dist((int)$a['q'], (int)$a['r'], (int)$b['q'], (int)$b['r']));
+ok($seed === 777 && !array_filter($vs, fn($v) => $v['q'] === null), '재생성 후 모든 마을 배치 (' . count($vs) . '개, 최소 거리 ' . $minD . ')');
+
+echo "[길찾기]\n";
+// 세로로 흐르는 강 (q = 2, r = -5 ~ 1) — 아래쪽 끝(r = 2, 3)으로 돌아갈 수 있음. 호수 하나, 산 하나
+$set = [];
+for ($r = -5; $r <= 1; $r++) $set["2,$r"] = ['river', ''];
+$set['-2,2'] = ['lake', ''];
+$set['-1,0'] = ['mountain', ''];
+$set['4,-3'] = ['plain', 'mine'];
+testMap(5, $set);
+$va = (int)vg_create_village('m1', '맵A')['id'];
+$vb = (int)vg_create_village('m2', '맵B')['id'];
+placeAt($va, 0, 0);
+placeAt($vb, -3, 3);
+ok(vg_astar(0, 0, 4, 0, $va) !== null, '강 끝을 돌아서 건너편으로 가는 길');
+$p = vg_astar(0, 0, 1, -1, $va);
+ok($p && count($p) === 2, '바로 옆 칸은 2타일 경로');
+ok(vg_astar(0, 0, -2, 2, $va) === null, '호수로는 갈 수 없음');
+ok(vg_astar(0, 0, 2, 0, $va) === null, '다리 없는 강으로는 갈 수 없음');
+ok(vg_astar(0, 0, -3, 3, $va) === null, '남의 마을 타일로는 갈 수 없음 (5단계 공격)');
+$p = vg_astar(0, 0, -2, 0, $va);
+ok($p && count($p) === 4 && !in_array([-1, 0], $p, true), '산(비용 3)을 지나는 것보다 평원 3칸으로 돌아감');
+
+echo "[부대 이동]\n";
+setUnits($va, 'spearman', 20);
+setUnits($va, 'cavalry', 5);
+setUnits($va, 'worker', 10);
+expectErr(fn() => vg_act_army_create($va, ['spearman' => 30], 1, 0), '보유보다 많이 편성 불가', '20명');
+expectErr(fn() => vg_act_army_create($va, [], 1, 0), '빈 부대 불가');
+$aid = vg_act_army_create($va, ['spearman' => 10, 'cavalry' => 5], 3, -2);
+$a = army($va);
+$u = units($va);
+ok($u['spearman'] === 10 && $u['cavalry'] === 0, '편성한 병력은 마을에서 빠짐');
+ok(near(end($a['path'])[2], (count($a['path']) - 1) * 60, 0.01), '가장 느린 병종(창병 60초/칸) 기준 시간: ' . end($a['path'])[2]);
+$X = settle($va);
+ok(near(vg_upkeep_parts($X)['units'], 10 * 10 + 10 * 10 + 10 * 5 + 0 * 25 + 5 * 25), '나가 있는 병력도 식량 유지비에 포함');
+timeWarp($va, 90);
+$pos = vg_army_pos(army($va), vg_now());
+ok($pos['next'] !== null && near($pos['frac'], 0.5, 0.02), '90초 → 두 번째 칸으로 가는 중 50%');
+// 이동 중 경로 변경: 가던 칸까지는 마저 간다
+vg_act_army_move($va, $aid, 0, -3);
+$a = army($va);
+ok($a['path'][0][2] < 0 && near($a['path'][1][2], 30, 0.5), '경로 변경 시 가던 칸까지 남은 30초는 그대로');
+timeWarp($va, 3600);
+settle($va);
+$a = army($va);
+ok($a['state'] === 'stationed' && $a['q'] === 0 && $a['r'] === -3, '도착하면 주둔');
+// 회군: 진군 속도의 70%
+vg_act_army_move($va, $aid, 0, 0, true);
+$a = army($va);
+ok($a['returning'] === 1 && near(end($a['path'])[2], 3 * 60 / 0.7, 0.1), '회군은 70% 속도 (3칸 = ' . round(end($a['path'])[2]) . '초)');
+timeWarp($va, 300);
+settle($va);
+$u = units($va);
+ok(!army($va) && $u['spearman'] === 20 && $u['cavalry'] === 5, '마을 도착 → 부대 해산, 병력 복귀');
+$max = (int)S('army_max');
+for ($i = 0; $i < $max; $i++) vg_act_army_create($va, ['spearman' => 1], 1, 0);
+expectErr(fn() => vg_act_army_create($va, ['spearman' => 1], 1, 0), '마을당 부대 수 제한', '부대는');
+foreach (vg_load_armies($va) as $x) vg_act_army_move($va, $x['id'], 0, 0, true);
+timeWarp($va, 600);
+settle($va);
+
+echo "[채집·다리]\n";
+setS('storage_base', 1e9);
+rich($va);
+$aid = vg_act_army_create($va, ['worker' => 10], 4, -3);
+timeWarp($va, 3600);
+settle($va);
+vg_act_army_gather($va, $aid, true);
+timeWarp($va, 1800);
+$st4 = vg_state_armies($va);
+$me = $st4['armies'][0];
+ok(near($me['cargo']['iron'] ?? 0, 10 * 60 * 0.5, 0.5), '일꾼 10명 × 60/시간 × 30분 = 철광석 300: ' . round($me['cargo']['iron'] ?? 0));
+timeWarp($va, 3600 * 5);
+$me = vg_state_armies($va)['armies'][0];
+ok(near($me['cargo']['iron'], 600, 0.5), '운반량(일꾼 60 × 10 = 600)까지만');
+$iron0 = res($va)['iron'];
+vg_act_army_move($va, $aid, 0, 0, true);
+timeWarp($va, 3600);
+settle($va);
+ok(!army($va) && near(res($va)['iron'] - $iron0, 600, 1), '마을로 돌아오면 짐이 창고로');
+// 다리: 강 옆 (1, 0) 에 주둔, (2, 0) 에 다리
+$aid = vg_act_army_create($va, ['worker' => 5], 1, 0);
+timeWarp($va, 600);
+settle($va);
+$w0 = res($va)['wood'];
+expectErr(fn() => vg_act_army_bridge($va, $aid, 3, 0), '인접하지 않은 칸 불가', '바로 옆');
+vg_act_army_bridge($va, $aid, 2, 0);
+ok(near($w0 - res($va)['wood'], 300), '다리 건설 나무 300');
+timeWarp($va, 599);
+settle($va);
+ok(vg_map_tiles(true)['2,0']['f'] === '', '599초엔 아직');
+timeWarp($va, 2);
+vg_armies_resolve_due();
+ok(vg_map_tiles(true)['2,0']['f'] === 'bridge', '600초 → 다리 완성 (맵 조회 때 정산)');
+$p = vg_astar(0, 0, 3, 0, $va);
+ok($p && count($p) === 4, '다리로 강을 건너는 곧은 길');
+vg_act_army_move($va, $aid, 0, 0, true);
+timeWarp($va, 600);
+settle($va);
 setS('storage_base', 5000);
 
 echo "[동시 정산 — 원자적 선점]\n";

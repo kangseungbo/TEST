@@ -2,9 +2,9 @@
 // DB 연결 + 첫 실행 시 DB/스키마 자동 생성.
 // 스키마 변경은 vg_migrations() 에 새 번호를 추가하는 방식으로만 한다 (기존 번호 수정 금지).
 
-const VG_SCHEMA_VERSION = 3;
+const VG_SCHEMA_VERSION = 4;
 // 설정/건물 기본값 목록이 바뀌면 올린다 → 새 설정 키/새 건물이 기존 DB 에 추가된다.
-const VG_DEFAULTS_VERSION = 3;
+const VG_DEFAULTS_VERSION = 4;
 
 function vg_db(?PDO $use = null): PDO
 {
@@ -61,7 +61,7 @@ function vg_migrate(PDO $pdo): void
         $schema = (int)vg_meta_get($pdo, 'schema_version');
         foreach (vg_migrations() as $ver => $sqls) {
             if ($ver <= $schema) continue;
-            foreach ($sqls as $sql) $pdo->exec($sql);
+            foreach ($sqls as $sql) vg_migrate_exec($pdo, $sql);
             vg_meta_set($pdo, 'schema_version', (string)$ver);
         }
         if ((int)vg_meta_get($pdo, 'defaults_version') < VG_DEFAULTS_VERSION) {
@@ -70,6 +70,21 @@ function vg_migrate(PDO $pdo): void
         }
     } finally {
         $pdo->query("SELECT RELEASE_LOCK('village2_migrate')")->fetchColumn();
+    }
+}
+
+/**
+ * DDL 은 트랜잭션으로 되돌릴 수 없어 중간에 실패하면 일부만 적용된 채 남는다.
+ * 다시 실행할 때 이미 있는 테이블·컬럼·인덱스 오류는 건너뛴다.
+ */
+function vg_migrate_exec(PDO $pdo, string $sql): void
+{
+    try {
+        $pdo->exec($sql);
+    } catch (PDOException $e) {
+        $code = $e->errorInfo[1] ?? 0;
+        // 1050 테이블 있음, 1060 컬럼 있음, 1061 인덱스 있음, 1051/1091 지울 것 없음
+        if (!in_array($code, [1050, 1060, 1061, 1051, 1091], true)) throw $e;
     }
 }
 
@@ -232,6 +247,59 @@ function vg_migrations(): array
                 KEY idx_village (village_id)
             ) $E",
         ],
+        // 4단계: 육각 세계 맵·부대 이동
+        4 => [
+            "CREATE TABLE vg_terrain_defs (
+                code VARCHAR(16) PRIMARY KEY,
+                name VARCHAR(30) NOT NULL,
+                color VARCHAR(9) NOT NULL DEFAULT '#b9c77a',
+                move_cost DOUBLE NOT NULL DEFAULT 1,
+                def_bonus_pct DOUBLE NOT NULL DEFAULT 0,
+                cav_bonus_pct DOUBLE NOT NULL DEFAULT 0,
+                passable TINYINT NOT NULL DEFAULT 1,
+                sort_order INT NOT NULL DEFAULT 0,
+                descr VARCHAR(300) NOT NULL DEFAULT ''
+            ) $E",
+            "CREATE TABLE vg_map_tiles (
+                q SMALLINT NOT NULL,
+                r SMALLINT NOT NULL,
+                terrain VARCHAR(16) NOT NULL,
+                feature VARCHAR(16) NOT NULL DEFAULT '',
+                village_id INT NULL,
+                PRIMARY KEY (q, r),
+                KEY idx_village (village_id)
+            ) $E",
+            "ALTER TABLE vg_villages ADD COLUMN q SMALLINT NULL, ADD COLUMN r SMALLINT NULL",
+            "CREATE TABLE vg_armies (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                village_id INT NOT NULL,
+                name VARCHAR(40) NOT NULL,
+                state VARCHAR(12) NOT NULL DEFAULT 'stationed',
+                q SMALLINT NOT NULL,
+                r SMALLINT NOT NULL,
+                path_json MEDIUMTEXT NULL,
+                depart_at DOUBLE NULL,
+                arrive_at DOUBLE NULL,
+                is_return TINYINT NOT NULL DEFAULT 0,
+                task VARCHAR(12) NOT NULL DEFAULT '',
+                task_q SMALLINT NULL,
+                task_r SMALLINT NULL,
+                task_start DOUBLE NULL,
+                task_end DOUBLE NULL,
+                cargo_json VARCHAR(500) NOT NULL DEFAULT '{}',
+                created_at DOUBLE NOT NULL,
+                KEY idx_village (village_id),
+                KEY idx_arrive (arrive_at),
+                KEY idx_task_end (task_end)
+            ) $E",
+            "CREATE TABLE vg_army_units (
+                army_id INT NOT NULL,
+                owner_village_id INT NOT NULL,
+                unit_code VARCHAR(32) NOT NULL,
+                count INT NOT NULL,
+                PRIMARY KEY (army_id, owner_village_id, unit_code)
+            ) $E",
+        ],
     ];
 }
 
@@ -252,6 +320,17 @@ function vg_sync_defaults(PDO $pdo): void
     vg_insert_building_defs($pdo, false);
     vg_insert_unit_defs($pdo, false);
     vg_insert_research_defs($pdo, false);
+    vg_insert_terrain_defs($pdo, false);
+}
+
+function vg_insert_terrain_defs(PDO $pdo, bool $overwrite): void
+{
+    $st = $pdo->prepare(($overwrite ? 'REPLACE' : 'INSERT IGNORE') . ' INTO vg_terrain_defs
+        (code, name, color, move_cost, def_bonus_pct, cav_bonus_pct, passable, sort_order, descr) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    $i = 0;
+    foreach (vg_default_terrain_defs() as $code => $d) {
+        $st->execute([$code, $d['name'], $d['color'], $d['move_cost'], $d['def'], $d['cav'], $d['passable'], ($i++) * 10, $d['descr']]);
+    }
 }
 
 function vg_insert_unit_defs(PDO $pdo, bool $overwrite): void

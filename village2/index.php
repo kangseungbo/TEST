@@ -80,7 +80,16 @@ $v = max(array_map('filemtime', glob(__DIR__ . '/assets/{js,css}/*.{js,css}', GL
     <section id="tab-research" class="tab pane"></section>
 
     <section id="tab-map" class="tab">
-      <div class="parch card soon">세계 맵은 4단계에서 열립니다.</div>
+      <div class="mapstage">
+        <canvas id="mapcv"></canvas>
+        <div class="camctl">
+          <button id="mzin" title="확대">＋</button>
+          <button id="mzout" title="축소">－</button>
+          <button id="mzfit" title="전체">전체</button>
+          <button id="mzhome" title="내 마을">마을</button>
+        </div>
+      </div>
+      <aside class="mappanel parch" id="mappanel"></aside>
     </section>
 
     <section id="tab-log" class="tab">
@@ -96,6 +105,8 @@ $v = max(array_map('filemtime', glob(__DIR__ . '/assets/{js,css}/*.{js,css}', GL
   <script src="assets/js/camera.js?v=<?= h($v) ?>"></script>
   <script src="assets/js/art.js?v=<?= h($v) ?>"></script>
   <script src="assets/js/tabs.js?v=<?= h($v) ?>"></script>
+  <script src="assets/js/map.js?v=<?= h($v) ?>"></script>
+  <script src="assets/js/world.js?v=<?= h($v) ?>"></script>
   <script src="assets/js/village.js?v=<?= h($v) ?>"></script>
 <?php endif; ?>
 </body>

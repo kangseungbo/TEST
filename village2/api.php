@@ -1,6 +1,7 @@
 <?php
 // 게임 JSON API. GET ?a=state, POST ?a=행동 (csrf 필수)
 // 행동: build upgrade cancel demolish move rename / hire fire assign / train train_cancel disband / research research_cancel
+//       army_create army_move army_recall army_gather army_bridge   (조회: state, map, armies)
 require __DIR__ . '/lib/bootstrap.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -23,6 +24,11 @@ try {
     $village = vg_village_for_user($user);
     $vid = (int)$village['id'];
 
+    if ($a === 'map') vg_api_out(['ok' => true, 'map' => vg_state_map()]);
+    if ($a === 'armies') {
+        vg_armies_resolve_due();
+        vg_api_out(['ok' => true] + vg_state_armies($vid));
+    }
     if ($a !== 'state') {
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') vg_api_out(['ok' => false, 'error' => 'POST 전용'], 405);
         vg_check_csrf($in['csrf'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? null));
@@ -41,10 +47,17 @@ try {
             case 'disband':  vg_act_disband($vid, (string)($in['unit'] ?? ''), (int)($in['count'] ?? 0)); break;
             case 'research': vg_act_research($vid, (string)($in['code'] ?? '')); break;
             case 'research_cancel': vg_act_research_cancel($vid, (string)($in['code'] ?? '')); break;
+            case 'army_create': vg_act_army_create($vid, (array)($in['units'] ?? []), (int)($in['q'] ?? 0), (int)($in['r'] ?? 0)); break;
+            case 'army_move':   vg_act_army_move($vid, (int)($in['id'] ?? 0), (int)($in['q'] ?? 0), (int)($in['r'] ?? 0)); break;
+            case 'army_recall': vg_act_army_move($vid, (int)($in['id'] ?? 0), 0, 0, true); break;
+            case 'army_gather': vg_act_army_gather($vid, (int)($in['id'] ?? 0), !empty($in['on'])); break;
+            case 'army_bridge': vg_act_army_bridge($vid, (int)($in['id'] ?? 0), (int)($in['q'] ?? 0), (int)($in['r'] ?? 0)); break;
             default: vg_api_out(['ok' => false, 'error' => '알 수 없는 요청'], 400);
         }
     }
-    vg_api_out(['ok' => true, 'state' => vg_settle_and_state($vid)]);
+    $out = ['ok' => true, 'state' => vg_settle_and_state($vid)];
+    if (str_starts_with($a, 'army_')) $out += vg_state_armies($vid);
+    vg_api_out($out);
 } catch (VgError $e) {
     vg_api_out(['ok' => false, 'error' => $e->getMessage()], 400);
 } catch (VgAuthError $e) {

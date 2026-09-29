@@ -160,3 +160,34 @@ function vg_villager_names(): array
     return ['돌쇠', '마당쇠', '순이', '복남', '삼월이', '칠복', '억쇠', '귀남', '막동', '끝순', '덕배', '판돌', '옥분', '갑돌',
         '을순', '만석', '봉팔', '춘삼', '점순', '금동', '말순', '길동', '복순', '영칠', '달래', '두꺼비', '방울', '보리', '팥쥐', '콩쥐'];
 }
+
+// ───────────── 4단계: 지형 ─────────────
+
+/** 지형 기본값. move_cost = 들어갈 때 이동 비용 배수, def = 방어 보너스(5단계), cav = 기병 보너스(5단계) */
+function vg_default_terrain_defs(): array
+{
+    return [
+        'plain'    => ['name' => '평원', 'color' => '#b8c77a', 'move_cost' => 1, 'def' => 0, 'cav' => 20, 'passable' => 1,
+            'descr' => '넓게 트인 땅. 기병에게 유리하고 인접 부대와 싸울 수 있다(5단계).'],
+        'forest'   => ['name' => '숲', 'color' => '#5e8a45', 'move_cost' => 2, 'def' => 15, 'cav' => -10, 'passable' => 1,
+            'descr' => '이동이 느리고 수비에 유리. 일꾼이 나무를 모을 수 있다.'],
+        'mountain' => ['name' => '산', 'color' => '#9b907f', 'move_cost' => 3, 'def' => 30, 'cav' => -30, 'passable' => 1,
+            'descr' => '매우 느리지만 방어 보너스가 크다.'],
+        'river'    => ['name' => '강', 'color' => '#5b9bd5', 'move_cost' => 2, 'def' => -10, 'cav' => -20, 'passable' => 0,
+            'descr' => '다리가 없으면 건널 수 없다. 일꾼이 다리를 놓을 수 있다.'],
+        'lake'     => ['name' => '호수', 'color' => '#3f7cbf', 'move_cost' => 1, 'def' => 0, 'cav' => 0, 'passable' => 0,
+            'descr' => '건널 수 없다. 호숫가에 항구가 있다.'],
+    ];
+}
+
+/** 지형 위 특수 지점: 코드 => [이름, 채집 자원] */
+function vg_map_features(): array
+{
+    return [
+        'village' => ['마을', null],
+        'mine'    => ['광산 거점', 'iron'],
+        'farm'    => ['농장 거점', 'food'],
+        'port'    => ['항구', 'money'],
+        'bridge'  => ['다리', null],
+    ];
+}

@@ -96,6 +96,7 @@
     renderPanel();
     renderLogs();
     if (window.VgTabs) window.VgTabs.render(st);
+    if (window.VgWorld) window.VgWorld.onState(st);
     if (!first && st.crit) {
       for (const code in st.crit) {
         const c = st.crit[code];
@@ -504,10 +505,12 @@
     }
     tickPanel();
     if (window.VgTabs) window.VgTabs.tick();
+    if (window.VgWorld) window.VgWorld.tick();
     // 완공·연구·훈련 주문 완료 시각이 지나면 서버에서 다시 읽는다 (서버가 같은 시각에 처리)
     const due = G.st.buildings.some((b) => b.build_finish && b.build_finish <= now)
       || G.st.research.some((r) => r.finish && r.finish <= now)
-      || G.st.train.some((g) => g.queue.some((q) => q.finish && q.finish <= now));
+      || G.st.train.some((g) => g.queue.some((q) => q.finish && q.finish <= now))
+      || G.st.my_armies.some((a) => a.state === 'moving' && a.arrive_at && a.arrive_at <= now);
     const pollDue = Date.now() - G.lastPoll > G.st.ui.poll_sec * 1000;
     if ((due || pollDue) && !G.refreshing && Date.now() - G.lastPoll > 1000) refresh();
   }
@@ -517,6 +520,7 @@
     document.querySelectorAll('main .tab').forEach((t) => t.classList.toggle('on', t.id === 'tab-' + name));
     // 숨겨진 동안 그린 이름표는 크기 측정이 0 이라 마을 탭으로 돌아오면 다시 그린다
     if (name === 'village' && G.st) renderVillage();
+    if (window.VgWorld) { if (name === 'map') window.VgWorld.show(); else window.VgWorld.hide(); }
     if (anchor) { const n = document.getElementById(anchor); if (n) n.scrollIntoView({ block: 'start' }); }
   }
 

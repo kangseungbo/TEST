@@ -20,6 +20,9 @@ function vg_admin_action(string $do, array $P, array $F): string
         case 'add_udef':      return vg_admin_add_udef($P);
         case 'delete_udef':   return vg_admin_delete_udef((string)($P['code'] ?? ''));
         case 'save_rdefs':    return vg_admin_save_rdefs($P['r'] ?? []);
+        case 'map_regen':     return vg_admin_map_regen((int)($P['seed'] ?? 0), (int)($P['radius'] ?? 0), (string)($P['confirm'] ?? ''));
+        case 'save_tdefs':    return vg_admin_save_tdefs($P['t'] ?? []);
+        case 'army_home':     return vg_admin_army_home((int)($P['aid'] ?? 0));
         case 'add_rdef':      return vg_admin_add_rdef($P);
         case 'delete_rdef':   return vg_admin_delete_rdef((string)($P['code'] ?? ''));
     }
@@ -218,6 +221,12 @@ function vg_admin_delete_village_rows(PDO $pdo, ?int $vid): void
     foreach (['vg_buildings', 'vg_resources', 'vg_logs', 'vg_villagers', 'vg_village_units', 'vg_train_queue', 'vg_research'] as $t) {
         $pdo->exec("DELETE FROM $t$w");
     }
+    // 부대(남의 부대에 섞인 이 마을 병력 포함)와 맵 위 마을 자리
+    $pdo->exec('DELETE FROM vg_army_units' . ($vid === null ? '' : ' WHERE owner_village_id = ' . (int)$vid
+        . ' OR army_id IN (SELECT id FROM vg_armies WHERE village_id = ' . (int)$vid . ')'));
+    $pdo->exec('DELETE FROM vg_armies' . ($vid === null ? '' : ' WHERE village_id = ' . (int)$vid));
+    $pdo->exec("UPDATE vg_map_tiles SET village_id = NULL, feature = '' WHERE " . ($vid === null ? 'village_id IS NOT NULL' : 'village_id = ' . (int)$vid));
+    vg_map_bump();
     $pdo->exec('DELETE FROM vg_villages' . ($vid === null ? '' : ' WHERE id = ' . (int)$vid));
 }
 
@@ -245,6 +254,10 @@ function vg_admin_reset(string $what, string $confirm): string
         case 'udefs':
             vg_insert_unit_defs($pdo, true);
             return '기본 병종 정의를 기본값으로 되돌렸습니다. (직접 추가한 병종은 그대로)';
+        case 'tdefs':
+            vg_insert_terrain_defs($pdo, true);
+            vg_map_bump();
+            return '지형 정의를 기본값으로 되돌렸습니다.';
         case 'rdefs':
             vg_insert_research_defs($pdo, true);
             return '기본 연구 정의를 기본값으로 되돌렸습니다. (직접 추가한 연구는 그대로)';
@@ -377,4 +390,57 @@ function vg_admin_delete_rdef(string $code): string
     $pdo->prepare('DELETE FROM vg_research_defs WHERE code = ?')->execute([$code]);
     $pdo->prepare('DELETE FROM vg_research WHERE code = ?')->execute([$code]);
     return '연구 정의를 지웠습니다.';
+}
+
+// ───────────── 맵·부대 ─────────────
+
+function vg_admin_map_regen(int $seed, int $radius, string $confirm): string
+{
+    if ($confirm !== '재생성') throw new VgError("확인란에 '재생성' 이라고 입력하세요.");
+    $radius = $radius ?: (int)S('map_radius');
+    $used = vg_map_generate($seed, $radius);
+    return "맵을 새로 만들었습니다 (시드 {$used}, 반지름 {$radius}). 모든 부대는 마을로 돌아왔고 마을은 다시 배치했습니다.";
+}
+
+function vg_admin_save_tdefs(array $rows): string
+{
+    $pdo = vg_db();
+    $st = $pdo->prepare('UPDATE vg_terrain_defs SET name = ?, color = ?, move_cost = ?, def_bonus_pct = ?, cav_bonus_pct = ?, passable = ?, descr = ? WHERE code = ?');
+    $n = 0;
+    foreach ($rows as $code => $d) {
+        $color = (string)($d['color'] ?? '#cccccc');
+        if (!preg_match('/^#[0-9a-fA-F]{6}$/', $color)) throw new VgError('색은 #rrggbb 형식');
+        $st->execute([mb_substr(trim((string)($d['name'] ?? $code)), 0, 30) ?: $code, $color, max(0.1, (float)($d['move_cost'] ?? 1)),
+            (float)($d['def_bonus_pct'] ?? 0), (float)($d['cav_bonus_pct'] ?? 0), !empty($d['passable']) ? 1 : 0,
+            mb_substr(trim((string)($d['descr'] ?? '')), 0, 300), $code]);
+        $n += $st->rowCount();
+    }
+    vg_map_bump();
+    return "지형 {$n}개를 바꿨습니다.";
+}
+
+/** 부대를 즉시 마을로 (짐은 창고로) */
+function vg_admin_army_home(int $aid): string
+{
+    $st = vg_db()->prepare('SELECT village_id FROM vg_armies WHERE id = ?');
+    $st->execute([$aid]);
+    $vid = (int)$st->fetchColumn();
+    if (!$vid) throw new VgError('부대를 찾을 수 없습니다.');
+    vg_tx(function () use ($vid, $aid) {
+        $now = vg_now();
+        $X = vg_settle($vid, $now);
+        if (!isset($X['armies'][$aid])) return;
+        $a = &$X['armies'][$aid];
+        vg_army_stop_task($a, $X['research'], $now);
+        [$hq, $hr] = vg_home_of($X);
+        $a['state'] = 'moving';
+        $a['path'] = [[$hq, $hr, 0]];
+        $a['depart_at'] = $a['arrive_at'] = $now;
+        unset($a);
+        vg_armies_resolve($X, $now);
+        vg_save_res($vid, $X['res']);
+        vg_army_save($X);
+        vg_log($vid, 'admin', '관리자가 부대를 마을로 돌려보냈습니다.');
+    });
+    return '부대를 마을로 돌려보냈습니다.';
 }

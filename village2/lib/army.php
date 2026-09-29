@@ -247,7 +247,8 @@ function vg_upkeep_parts(array $X): array
     $vil = count($X['vils']) * (float)S('villager_food_each');
     $units = 0.0;
     $udefs = vg_udefs();
-    foreach ($X['units'] as $code => $n) $units += $n * ($udefs[$code]['upkeep'] ?? 0);
+    // 부대로 나가 있는 병력도 마을 식량을 먹는다
+    foreach ([$X['units'], $X['away'] ?? []] as $set) foreach ($set as $code => $n) $units += $n * ($udefs[$code]['upkeep'] ?? 0);
     return ['villagers' => $vil, 'units' => $units, 'total' => $vil + $units];
 }
 

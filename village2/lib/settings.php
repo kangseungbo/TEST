@@ -12,6 +12,8 @@ function vg_setting_categories(): array
         'villager'   => '주민',
         'military'   => '병력·훈련',
         'research'   => '연구',
+        'map'        => '세계 맵',
+        'march'      => '부대·이동',
         'start'      => '시작 조건',
         'display'    => '화면·표시',
     ];
@@ -73,6 +75,26 @@ function vg_setting_defs(): array
         // 연구
         'research_speed_mult'     => [1.0, 'float', 'research', '연구 속도 배수', ''],
         'research_max_concurrent' => [1, 'int', 'research', '동시 연구 수', ''],
+
+        // 세계 맵
+        'map_radius'           => [16, 'int', 'map', '맵 반지름(타일)', '가운데에서 가장자리까지 타일 수. 바꾸면 맵 재생성 때 적용'],
+        'map_seed'             => [0, 'int', 'map', '맵 시드', '같은 시드면 같은 맵. 0 이면 재생성 때 무작위'],
+        'map_rivers'           => [3, 'int', 'map', '강 개수', ''],
+        'map_mines'            => [8, 'int', 'map', '광산 거점 수', '산 근처에 생긴다'],
+        'map_farms'            => [8, 'int', 'map', '농장 거점 수', ''],
+        'map_ports'            => [4, 'int', 'map', '항구 수', '호숫가에 생긴다'],
+        'village_min_distance' => [6, 'int', 'map', '마을 사이 최소 거리', '새 마을을 놓을 때 다른 마을과 떨어뜨릴 타일 수 (자리가 없으면 줄여서 놓음)'],
+        'map_poll_sec'         => [5, 'int', 'map', '맵 화면 갱신(초)', '세계 맵을 보고 있을 때 부대 정보를 다시 읽는 주기'],
+
+        // 부대·이동
+        'army_max'               => [3, 'int', 'march', '마을당 부대 수', '한 마을이 동시에 내보낼 수 있는 부대 수'],
+        'march_speed_mult'       => [1.0, 'float', 'march', '전체 이동 속도 배수', '2 이면 이동 시간이 절반'],
+        'march_return_speed_pct' => [70, 'float', 'march', '회군 속도(%)', '마을로 돌아올 때는 진군 속도의 이 비율'],
+        'gather_per_worker_hour' => [60, 'float', 'march', '일꾼 채집량(시간당)', '거점·숲에 주둔한 부대의 일꾼 1명이 시간당 모으는 양. 부대 운반량까지만'],
+        'bridge_workers_min'     => [5, 'int', 'march', '다리 건설 최소 일꾼', ''],
+        'bridge_wood'            => [300, 'float', 'march', '다리 건설 나무', '마을 창고에서 낸다'],
+        'bridge_time_sec'        => [600, 'float', 'march', '다리 건설 시간(초)', '최소 일꾼 수 기준. 일꾼이 많으면 빨라진다 (최대 4배)'],
+        'bridge_move_cost'       => [1, 'float', 'march', '다리 이동 비용', '다리가 놓인 강 타일의 이동 비용'],
 
         // 시작 조건
         'start_money'     => [800, 'float', 'start', '시작 돈', ''],
