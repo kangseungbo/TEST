@@ -1,0 +1,4 @@
+config.local.php
+uploads/*
+!uploads/.htaccess
+!uploads/index.html
